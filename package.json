@@ -1,0 +1,19 @@
+{
+  "name": "github-webhook-listener",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@octokit/webhooks": "^13.0.0",
+    "dotenv": "^16.0.0",
+    "smee-client": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
