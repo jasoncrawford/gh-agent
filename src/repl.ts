@@ -1,35 +1,162 @@
 import readline from "readline";
+import fs from "fs";
 import { query, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
-// ── Formatting helpers ────────────────────────────────────────────────────────
+// ── Log file ──────────────────────────────────────────────────────────────────
+
+const LOG_FILE = "repl.log";
+
+function logFull(label: string, data: unknown) {
+  const entry =
+    `\n${"=".repeat(70)}\n` +
+    `${new Date().toISOString()}  ${label}\n` +
+    `${"-".repeat(70)}\n` +
+    JSON.stringify(data, null, 2) +
+    "\n";
+  fs.appendFileSync(LOG_FILE, entry);
+}
+
+// ── Console summary helpers ───────────────────────────────────────────────────
 
 const W = 70;
 const hr = (ch = "─") => ch.repeat(W);
 
-function box(title: string, content?: unknown) {
-  console.log("\n" + hr("═"));
-  console.log(`  ${title}`);
-  if (content !== undefined) {
-    console.log(hr());
-    console.log(JSON.stringify(content, null, 2));
-  }
-  console.log(hr("═"));
+function trunc(s: string, n = 80) {
+  s = s.replace(/\s+/g, " ").trim();
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-function section(title: string, content?: unknown) {
-  console.log("\n" + hr());
-  console.log(`  ${title}`);
-  if (content !== undefined) {
-    console.log(hr());
-    console.log(JSON.stringify(content, null, 2));
+function print(line: string) {
+  console.log(line);
+}
+
+// ── Message printer ───────────────────────────────────────────────────────────
+
+function printMessage(msg: unknown) {
+  const m = msg as Record<string, unknown>;
+  const type = m.type as string;
+
+  if (type === "system") {
+    const sub = (m as any).subtype as string;
+    if (sub === "init") print(`MSG   system/init       session=${m.session_id}`);
+    else if (sub === "task_started") print(`MSG   task_started      id=${(m as any).task_id}`);
+    else if (sub === "task_progress") {
+      const p = m as any;
+      print(`MSG   task_progress     turns=${p.turns ?? "?"} tools=${p.tool_use_count ?? "?"}`);
+    } else if (sub === "task_notification") {
+      print(`MSG   task_notification ${trunc(String((m as any).message ?? ""), 50)}`);
+    } else {
+      print(`MSG   system/${sub}`);
+    }
+    return;
+  }
+
+  if (type === "assistant") {
+    const content = ((m.message as any)?.content ?? []) as any[];
+    print(`MSG   assistant         (${content.length} block${content.length !== 1 ? "s" : ""})`);
+    for (const b of content) {
+      if (b.type === "thinking") {
+        print(`\n${hr()}  [thinking]`);
+        print(String(b.thinking ?? ""));
+        print(hr());
+      } else if (b.type === "text") {
+        print(`\n${hr()}  [text]`);
+        print(String(b.text ?? ""));
+        print(hr());
+      } else if (b.type === "tool_use") {
+        const args = Object.entries(b.input ?? {})
+          .map(([k, v]) => `${k}=${trunc(String(v), 40)}`)
+          .join(", ");
+        print(`  TOOL_USE  ${b.name}(${args})`);
+      } else {
+        print(`  block/${b.type}`);
+      }
+    }
+    return;
+  }
+
+  if (type === "user") {
+    const content = ((m.message as any)?.content ?? []) as any[];
+    print(`MSG   user              (${content.length} block${content.length !== 1 ? "s" : ""})`);
+    for (const b of content) {
+      if (b.type === "tool_result") {
+        const raw = b.content;
+        const text = typeof raw === "string"
+          ? raw
+          : (Array.isArray(raw) ? raw : [raw])
+              .filter((x: any) => x?.type === "text")
+              .map((x: any) => x.text)
+              .join(" ");
+        const prefix = b.is_error ? "TOOL_ERROR" : "TOOL_RESULT";
+        print(`  ${prefix}  id=${b.tool_use_id}  ${trunc(text, 60)}`);
+      } else if (b.type === "text") {
+        print(`  text: ${trunc(String(b.text ?? ""), 80)}`);
+      } else {
+        print(`  block/${b.type}`);
+      }
+    }
+    return;
+  }
+
+  if ("result" in m) {
+    const stop = (m as any).stop_reason ?? "?";
+    print(`MSG   result            stop=${stop}`);
+    return;
+  }
+
+  print(`MSG   ${type}`);
+}
+
+// ── Hook summarizer ───────────────────────────────────────────────────────────
+
+function summarizeHook(event: string, input: unknown): string {
+  const h = input as Record<string, unknown>;
+
+  switch (event) {
+    case "PreToolUse": {
+      const name = h.tool_name as string;
+      const args = Object.entries((h.tool_input as Record<string, unknown>) ?? {})
+        .map(([k, v]) => `${k}=${trunc(String(v), 30)}`)
+        .join(", ");
+      return `HOOK  PreToolUse        ${name}(${args})`;
+    }
+    case "PostToolUse": {
+      const name = h.tool_name as string;
+      const ok = (h as any).tool_error == null ? "ok" : "error";
+      return `HOOK  PostToolUse       ${name}  (${ok})`;
+    }
+    case "PostToolUseFailure": {
+      const name = h.tool_name as string;
+      return `HOOK  PostToolUseFailure  ${name}  ${trunc(String((h as any).tool_error ?? ""), 50)}`;
+    }
+    case "Notification":
+      return `HOOK  Notification      "${trunc(String(h.message ?? ""), 60)}"`;
+    case "UserPromptSubmit":
+      return `HOOK  UserPromptSubmit  "${trunc(String(h.prompt ?? ""), 60)}"`;
+    case "PermissionRequest": {
+      const name = (h as any).tool_name ?? (h as any).tool ?? "?";
+      const decision = (h as any).status ?? (h as any).decision ?? "?";
+      return `HOOK  PermissionRequest  ${name}  → ${decision}`;
+    }
+    case "Stop":
+      return `HOOK  Stop              reason=${(h as any).stop_reason ?? "?"}`;
+    case "SubagentStart":
+      return `HOOK  SubagentStart     id=${(h as any).agent_id ?? "?"}`;
+    case "SubagentStop":
+      return `HOOK  SubagentStop      id=${(h as any).agent_id ?? "?"}`;
+    case "TaskCompleted":
+      return `HOOK  TaskCompleted     id=${(h as any).task_id ?? "?"}`;
+    default:
+      return `HOOK  ${event}`;
   }
 }
 
-// ── Hook factory ─────────────────────────────────────────────────────────────
+// ── Hook factory ──────────────────────────────────────────────────────────────
 
 function makeHook(event: string): HookCallback {
   return async (input) => {
-    section(`HOOK  ${event}`, input);
+    logFull(`HOOK ${event}`, input);
+    print(summarizeHook(event, input));
     return {};
   };
 }
@@ -62,14 +189,17 @@ const hooks = Object.fromEntries(
   ])
 ) as Record<HookEvent, [{ matcher: string; hooks: [HookCallback] }]>;
 
-// ── REPL ─────────────────────────────────────────────────────────────────────
+// ── REPL ──────────────────────────────────────────────────────────────────────
 
 async function runQuery(prompt: string, sessionId: string | undefined) {
-  box(`QUERY${sessionId ? `  (resuming ${sessionId})` : ""}`);
-  console.log(prompt);
+  print(`\n${hr("═")}`);
+  print(`  > ${trunc(prompt, W - 4)}`);
+  if (sessionId) print(`  session: ${sessionId}`);
+  print(hr("═"));
+
+  logFull("QUERY", { prompt, sessionId });
 
   let capturedSessionId = sessionId;
-  let turnCount = 0;
 
   for await (const message of query({
     prompt,
@@ -80,25 +210,20 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
       hooks,
     },
   })) {
-    turnCount++;
+    logFull("MESSAGE", message);
 
-    // Capture session ID from the init message
-    if (
-      message.type === "system" &&
-      (message as any).subtype === "init" &&
-      !capturedSessionId
-    ) {
-      capturedSessionId = (message as any).session_id;
+    const m = message as Record<string, unknown>;
+
+    if (m.type === "system" && (m as any).subtype === "init" && !capturedSessionId) {
+      capturedSessionId = (m as any).session_id;
     }
 
-    // Log every message
-    section(`MESSAGE #${turnCount}  type=${message.type}`, message);
+    printMessage(message);
 
-    // Print the final result prominently
-    if ("result" in message) {
-      box("RESULT");
-      console.log(message.result);
-      console.log(`\nstop_reason: ${(message as any).stop_reason ?? "unknown"}`);
+    if ("result" in m) {
+      print(`\n${hr("═")}  RESULT  stop=${(m as any).stop_reason ?? "?"}`);
+      print(String(m.result ?? ""));
+      print(hr("═"));
     }
   }
 
@@ -111,26 +236,25 @@ async function main() {
     output: process.stdout,
   });
 
-  const prompt = (q: string) =>
+  const ask = (q: string) =>
     new Promise<string>((resolve) => rl.question(q, resolve));
 
   let sessionId: string | undefined;
 
-  console.log(hr("═"));
-  console.log("  Claude Agent SDK REPL");
-  console.log("  All messages and hooks are logged. Type 'exit' to quit.");
-  console.log("  Type 'reset' to start a new session.");
-  console.log(hr("═"));
+  print(hr("═"));
+  print("  Claude Agent SDK REPL");
+  print(`  Full details logged to ${LOG_FILE}. Type 'exit' or 'reset'.`);
+  print(hr("═"));
 
   while (true) {
-    const input = (await prompt("\n> ")).trim();
+    const input = (await ask("\n> ")).trim();
 
     if (!input) continue;
     if (input === "exit") break;
 
     if (input === "reset") {
       sessionId = undefined;
-      console.log("Session reset.");
+      print("Session reset.");
       continue;
     }
 
@@ -138,6 +262,7 @@ async function main() {
       sessionId = await runQuery(input, sessionId);
     } catch (err) {
       console.error("\nERROR:", err);
+      logFull("ERROR", err instanceof Error ? { message: err.message, stack: err.stack } : err);
     }
   }
 
