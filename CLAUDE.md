@@ -19,7 +19,3 @@ npm start
 - TypeScript with ESM (`"type": "module"`). New dependencies must be ESM-compatible.
 - No compilation step — `tsx` runs TypeScript directly.
 - Webhook secret is optional for local dev; set `WEBHOOK_SECRET` in `.env` to enable signature verification.
-
-## Git
-
-Work directly on `main`. Do not create worktrees or branches for routine changes.
