@@ -1,4 +1,3 @@
-import readline from "readline";
 import fs from "fs";
 import { query, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
@@ -224,14 +223,103 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
   return capturedSessionId;
 }
 
-async function main() {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+// ── Raw input with bracketed paste support ────────────────────────────────────
 
-  const ask = (q: string) =>
-    new Promise<string>((resolve) => rl.question(q, resolve));
+// Bracketed paste mode: the terminal wraps pasted text in escape markers
+// (\x1b[200~ ... \x1b[201~), letting us collect it as a single input
+// rather than having each newline submit a separate prompt.
+
+function ask(promptStr: string): Promise<string> {
+  return new Promise((resolve) => {
+    let buffer = "";
+    let pasteBuffer = "";
+    let inPaste = false;
+    let done = false;
+
+    process.stdout.write(promptStr);
+
+    function submit(value: string) {
+      if (done) return;
+      done = true;
+      process.stdout.write("\n");
+      process.stdin.removeListener("data", onData);
+      resolve(value.trim());
+    }
+
+    function exit() {
+      process.stdout.write("\x1b[?2004l\n"); // disable bracketed paste
+      process.exit(0);
+    }
+
+    function processTyped(data: string) {
+      // Strip CSI escape sequences (arrow keys, function keys, etc.)
+      data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+      data = data.replace(/\x1b./gs, "");
+
+      for (const ch of data) {
+        const code = ch.charCodeAt(0);
+        if (ch === "\r" || ch === "\n") { submit(buffer); return; }
+        else if (ch === "\x7f" || ch === "\x08") { // backspace
+          if (buffer.length > 0) { buffer = buffer.slice(0, -1); process.stdout.write("\b \b"); }
+        }
+        else if (ch === "\x03") { process.stdout.write("^C"); exit(); } // Ctrl+C
+        else if (ch === "\x04") { if (!buffer) exit(); }               // Ctrl+D on empty line
+        else if (code >= 32) { buffer += ch; process.stdout.write(ch); }
+      }
+    }
+
+    function onData(chunk: string) {
+      // If we're mid-paste, accumulate until the closing marker
+      if (inPaste) {
+        const end = chunk.indexOf("\x1b[201~");
+        if (end !== -1) {
+          pasteBuffer += chunk.slice(0, end);
+          inPaste = false;
+          const pasted = pasteBuffer;
+          pasteBuffer = "";
+          const full = buffer + pasted;
+          // Echo the pasted content (indent continuation lines for readability)
+          process.stdout.write(pasted.replace(/\n/g, "\n... "));
+          submit(full);
+        } else {
+          pasteBuffer += chunk;
+        }
+        return;
+      }
+
+      // Check for paste start marker
+      const start = chunk.indexOf("\x1b[200~");
+      if (start !== -1) {
+        processTyped(chunk.slice(0, start)); // handle anything typed before the paste
+        const rest = chunk.slice(start + 6); // skip \x1b[200~
+        const end = rest.indexOf("\x1b[201~");
+        if (end !== -1) {
+          // Entire paste arrived in one chunk
+          const pasted = rest.slice(0, end);
+          const full = buffer + pasted;
+          process.stdout.write(pasted.replace(/\n/g, "\n... "));
+          submit(full);
+        } else {
+          pasteBuffer = rest;
+          inPaste = true;
+        }
+        return;
+      }
+
+      processTyped(chunk);
+    }
+
+    process.stdin.on("data", onData);
+  });
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main() {
+  process.stdout.write("\x1b[?2004h"); // enable bracketed paste mode
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
 
   let sessionId: string | undefined;
 
@@ -242,10 +330,10 @@ async function main() {
   print(hr("═"));
 
   while (true) {
-    const input = (await ask("\n> ")).trim();
+    const input = await ask("\n> ");
 
     if (!input) continue;
-    if (input === "exit") break;
+    if (input === "exit") { process.stdout.write("\x1b[?2004l\n"); break; }
 
     if (input === "reset") {
       sessionId = undefined;
@@ -260,8 +348,6 @@ async function main() {
       logFull("ERROR", err instanceof Error ? { message: err.message, stack: err.stack } : err);
     }
   }
-
-  rl.close();
 }
 
 main();
