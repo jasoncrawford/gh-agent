@@ -9,8 +9,7 @@
   },
   "dependencies": {
     "@octokit/webhooks": "^13.0.0",
-    "dotenv": "^16.0.0",
-    "smee-client": "^2.0.0"
+    "dotenv": "^16.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

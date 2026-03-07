@@ -1,25 +1,9 @@
 import { Webhooks } from "@octokit/webhooks";
-import SmeeClient from "smee-client";
 import http from "http";
 import "dotenv/config";
 
 const PORT = parseInt(process.env.PORT ?? "3000");
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
-const SMEE_URL = process.env.SMEE_URL;
-
-// ── Smee proxy ────────────────────────────────────────────────────────────────
-
-if (SMEE_URL) {
-  const smee = new SmeeClient({
-    source: SMEE_URL,
-    target: `http://localhost:${PORT}/webhook`,
-    logger: console,
-  });
-  smee.start();
-  console.log(`Smee proxy: ${SMEE_URL} → http://localhost:${PORT}/webhook`);
-} else {
-  console.log("No SMEE_URL set — POST directly to /webhook");
-}
 
 // ── Webhook handler ───────────────────────────────────────────────────────────
 
