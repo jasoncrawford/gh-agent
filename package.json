@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "repl": "tsx src/repl.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.71",
     "@octokit/webhooks": "^13.0.0",
     "dotenv": "^16.0.0"
   },
