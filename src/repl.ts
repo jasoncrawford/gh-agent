@@ -241,13 +241,13 @@ function ask(promptStr: string): Promise<string> {
     function submit(value: string) {
       if (done) return;
       done = true;
-      process.stdout.write("\n");
+      process.stdout.write("\r\n");
       process.stdin.removeListener("data", onData);
       resolve(value.trim());
     }
 
     function exit() {
-      process.stdout.write("\x1b[?2004l\n"); // disable bracketed paste
+      process.stdout.write("\x1b[?2004l\r\n"); // disable bracketed paste
       process.exit(0);
     }
 
@@ -268,6 +268,11 @@ function ask(promptStr: string): Promise<string> {
       }
     }
 
+    function echoPaste(pasted: string) {
+      // In raw mode \n doesn't CR; use \r\n and indent continuation lines
+      process.stdout.write(pasted.replace(/\n/g, "\r\n... "));
+    }
+
     function onData(chunk: string) {
       // If we're mid-paste, accumulate until the closing marker
       if (inPaste) {
@@ -277,10 +282,8 @@ function ask(promptStr: string): Promise<string> {
           inPaste = false;
           const pasted = pasteBuffer;
           pasteBuffer = "";
-          const full = buffer + pasted;
-          // Echo the pasted content (indent continuation lines for readability)
-          process.stdout.write(pasted.replace(/\n/g, "\n... "));
-          submit(full);
+          echoPaste(pasted);
+          submit(buffer + pasted);
         } else {
           pasteBuffer += chunk;
         }
@@ -296,9 +299,8 @@ function ask(promptStr: string): Promise<string> {
         if (end !== -1) {
           // Entire paste arrived in one chunk
           const pasted = rest.slice(0, end);
-          const full = buffer + pasted;
-          process.stdout.write(pasted.replace(/\n/g, "\n... "));
-          submit(full);
+          echoPaste(pasted);
+          submit(buffer + pasted);
         } else {
           pasteBuffer = rest;
           inPaste = true;
@@ -333,7 +335,7 @@ async function main() {
     const input = await ask("\n> ");
 
     if (!input) continue;
-    if (input === "exit") { process.stdout.write("\x1b[?2004l\n"); break; }
+    if (input === "exit") { process.stdout.write("\x1b[?2004l\r\n"); break; }
 
     if (input === "reset") {
       sessionId = undefined;
