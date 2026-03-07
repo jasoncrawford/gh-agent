@@ -51,8 +51,11 @@ function printBlock(b: any, role: "assistant" | "user") {
     const text = typeof raw === "string"
       ? raw
       : (Array.isArray(raw) ? raw : [raw])
-          .filter((x: any) => x?.type === "text")
-          .map((x: any) => x.text)
+          .map((x: any) => {
+            if (x?.type === "text") return x.text;
+            if (x?.type === "tool_reference") return `[tool:${x.tool_name}]`;
+            return `[${x?.type ?? "?"}]`;
+          })
           .join(" ");
     print(b.is_error ? `!! ${trunc(text, 100)}` : `<< ${trunc(text, 100)}`);
   } else {
