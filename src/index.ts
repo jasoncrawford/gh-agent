@@ -23,11 +23,13 @@ if (SMEE_URL) {
 
 // ── Webhook handler ───────────────────────────────────────────────────────────
 
-const webhooks = new Webhooks({
-  secret: WEBHOOK_SECRET ?? "dev-placeholder",
-});
+const webhooks = WEBHOOK_SECRET ? new Webhooks({ secret: WEBHOOK_SECRET }) : null;
 
-webhooks.onAny(({ id, name, payload }) => {
+if (webhooks) {
+  webhooks.onAny(({ id, name, payload }) => printEvent(id, name as string, payload));
+}
+
+function printEvent(id: string, name: string, payload: unknown) {
   const p = payload as Record<string, unknown>;
   const action = typeof p.action === "string" ? ` / ${p.action}` : "";
 
@@ -37,17 +39,16 @@ webhooks.onAny(({ id, name, payload }) => {
   console.log(`ID      ${id}`);
   console.log(line);
 
-  // Quick-look summary for common event types
   const repo = p.repository as Record<string, unknown> | undefined;
   const sender = p.sender as Record<string, unknown> | undefined;
   if (repo) console.log(`REPO    ${repo.full_name}`);
   if (sender) console.log(`BY      ${sender.login}`);
 
-  summarize(name as string, p);
+  summarize(name, p);
 
   console.log(`\nPAYLOAD:\n${JSON.stringify(payload, null, 2)}`);
   console.log("═".repeat(70));
-});
+}
 
 function summarize(name: string, p: Record<string, unknown>) {
   const issue = p.issue as Record<string, unknown> | undefined;
@@ -161,7 +162,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      if (WEBHOOK_SECRET && signature) {
+      if (webhooks && signature) {
         await webhooks.verifyAndReceive({
           id,
           name: name as Parameters<typeof webhooks.verifyAndReceive>[0]["name"],
@@ -169,8 +170,7 @@ const server = http.createServer(async (req, res) => {
           payload: body,
         });
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await webhooks.receive({ id, name, payload: JSON.parse(body) } as any);
+        printEvent(id, name, JSON.parse(body));
       }
       res.writeHead(200);
       res.end("OK");
