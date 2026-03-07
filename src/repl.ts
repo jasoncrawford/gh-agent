@@ -15,7 +15,7 @@ function logFull(label: string, data: unknown) {
   fs.appendFileSync(LOG_FILE, entry);
 }
 
-// ── Console summary helpers ───────────────────────────────────────────────────
+// ── Formatting helpers ────────────────────────────────────────────────────────
 
 const W = 70;
 const hr = (ch = "─") => ch.repeat(W);
@@ -25,122 +25,97 @@ function trunc(s: string, n = 80) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
+function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
+  return Object.entries(input ?? {})
+    .map(([k, v]) => `${k}=${trunc(String(v), maxVal)}`)
+    .join(", ");
+}
+
+function toolResultText(b: any): string {
+  const raw = b.content;
+  if (typeof raw === "string") return raw;
+  return (Array.isArray(raw) ? raw : [raw])
+    .map((x: any) => {
+      if (x?.type === "text") return x.text;
+      if (x?.type === "tool_reference") return `[tool:${x.tool_name}]`;
+      return `[${x?.type ?? "?"}]`;
+    })
+    .join(" ");
+}
+
+// ── FORMATS ───────────────────────────────────────────────────────────────────
+// Edit these to change what gets printed to the console.
+// Each function receives the raw SDK data and returns a string to print.
+// Return null to suppress output for that type.
+
+type Fmt = (data: any) => string | null;
+
+// Content blocks within assistant/user messages
+const BLOCK_FMT: Record<string, Fmt> = {
+  thinking:    (b) => `\n[thinking]\n${b.thinking ?? ""}\n[/thinking]\n`,
+  text:        (b) => String(b.text ?? ""),
+  tool_use:    (b) => `>> ${b.name}(${fmtArgs(b.input)})`,
+  tool_result: (b) => (b.is_error ? `!! ` : `<< `) + trunc(toolResultText(b), 100),
+};
+
+// system/* message subtypes
+const SYSTEM_FMT: Record<string, Fmt> = {
+  init:              (m) => `session  ${m.session_id}`,
+  task_started:      (m) => `task started  id=${m.task_id}`,
+  task_progress:     (m) => `task progress  turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
+  task_notification: (m) => `task  ${trunc(String(m.message ?? ""), 70)}`,
+};
+
+// Hook events
+const HOOK_FMT: Record<string, Fmt> = {
+  PreToolUse:         (h) => `hook pre   ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
+  PostToolUse:        (h) => `hook post  ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`,
+  PostToolUseFailure: (h) => `hook fail  ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`,
+  Notification:       (h) => `hook note  "${trunc(String(h.message ?? ""), 60)}"`,
+  UserPromptSubmit:   (h) => `hook prompt  "${trunc(String(h.prompt ?? ""), 60)}"`,
+  PermissionRequest:  (h) => `hook perm  ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`,
+  Stop:               (h) => `hook stop  reason=${h.stop_reason ?? "?"}`,
+  SubagentStart:      (h) => `hook subagent start  id=${h.agent_id ?? "?"}`,
+  SubagentStop:       (h) => `hook subagent stop   id=${h.agent_id ?? "?"}`,
+  TaskCompleted:      (h) => `hook task completed  id=${h.task_id ?? "?"}`,
+};
+
+// ── Printing engine ───────────────────────────────────────────────────────────
+
 function print(line: string) {
   console.log(line);
 }
 
-// ── Message printer ───────────────────────────────────────────────────────────
-
 function printBlock(b: any, role: "assistant" | "user") {
-  if (b.type === "thinking") {
-    print(`\n[thinking]`);
-    print(String(b.thinking ?? ""));
-    print(`[/thinking]\n`);
-  } else if (b.type === "text") {
-    print(String(b.text ?? ""));
-  } else if (b.type === "tool_use") {
-    // assistant requesting a tool call
-    const args = Object.entries(b.input ?? {})
-      .map(([k, v]) => `${k}=${trunc(String(v), 50)}`)
-      .join(", ");
-    print(`>> ${b.name}(${args})`);
-  } else if (b.type === "tool_result") {
-    // user returning a tool result
-    const raw = b.content;
-    const text = typeof raw === "string"
-      ? raw
-      : (Array.isArray(raw) ? raw : [raw])
-          .map((x: any) => {
-            if (x?.type === "text") return x.text;
-            if (x?.type === "tool_reference") return `[tool:${x.tool_name}]`;
-            return `[${x?.type ?? "?"}]`;
-          })
-          .join(" ");
-    print(b.is_error ? `!! ${trunc(text, 100)}` : `<< ${trunc(text, 100)}`);
-  } else {
-    print(`[${role}/${b.type}]`);
-  }
+  const fmt = BLOCK_FMT[b.type];
+  print(fmt ? (fmt(b) ?? "") : `[${role}/${b.type}]`);
 }
 
 function printMessage(msg: unknown) {
-  const m = msg as Record<string, unknown>;
-  const type = m.type as string;
+  const m = msg as any;
 
-  // result is rendered by runQuery; skip here to avoid duplication
+  // result is rendered separately in runQuery
   if ("result" in m) return;
 
-  if (type === "system") {
-    const sub = (m as any).subtype as string;
-    if (sub === "init")              print(`session  ${(m as any).session_id}`);
-    else if (sub === "task_started") print(`task started  id=${(m as any).task_id}`);
-    else if (sub === "task_progress") {
-      const p = m as any;
-      print(`task progress  turns=${p.turns ?? "?"} tools=${p.tool_use_count ?? "?"}`);
-    }
-    else if (sub === "task_notification") print(`task  ${trunc(String((m as any).message ?? ""), 70)}`);
-    else                             print(`system/${sub}`);
+  if (m.type === "system") {
+    const fmt = SYSTEM_FMT[m.subtype];
+    print(fmt ? (fmt(m) ?? "") : `system/${m.subtype}`);
     return;
   }
 
-  if (type === "assistant") {
-    const content = ((m.message as any)?.content ?? []) as any[];
-    if (content.length === 0) { print(`[assistant — empty]`); return; }
-    for (const b of content) printBlock(b, "assistant");
+  if (m.type === "assistant" || m.type === "user") {
+    const content: any[] = m.message?.content ?? [];
+    if (!content.length) { print(`[${m.type} — empty]`); return; }
+    for (const b of content) printBlock(b, m.type);
     return;
   }
 
-  if (type === "user") {
-    const content = ((m.message as any)?.content ?? []) as any[];
-    if (content.length === 0) { print(`[user — empty]`); return; }
-    for (const b of content) printBlock(b, "user");
-    return;
-  }
-
-  print(`MSG   ${type}`);
+  print(`MSG   ${m.type}`);
 }
 
-// ── Hook summarizer ───────────────────────────────────────────────────────────
-
-function summarizeHook(event: string, input: unknown): string {
-  const h = input as Record<string, unknown>;
-
-  switch (event) {
-    case "PreToolUse": {
-      const name = h.tool_name as string;
-      const args = Object.entries((h.tool_input as Record<string, unknown>) ?? {})
-        .map(([k, v]) => `${k}=${trunc(String(v), 30)}`)
-        .join(", ");
-      return `HOOK  PreToolUse        ${name}(${args})`;
-    }
-    case "PostToolUse": {
-      const name = h.tool_name as string;
-      const ok = (h as any).tool_error == null ? "ok" : "error";
-      return `HOOK  PostToolUse       ${name}  (${ok})`;
-    }
-    case "PostToolUseFailure": {
-      const name = h.tool_name as string;
-      return `HOOK  PostToolUseFailure  ${name}  ${trunc(String((h as any).tool_error ?? ""), 50)}`;
-    }
-    case "Notification":
-      return `HOOK  Notification      "${trunc(String(h.message ?? ""), 60)}"`;
-    case "UserPromptSubmit":
-      return `HOOK  UserPromptSubmit  "${trunc(String(h.prompt ?? ""), 60)}"`;
-    case "PermissionRequest": {
-      const name = (h as any).tool_name ?? (h as any).tool ?? "?";
-      const decision = (h as any).status ?? (h as any).decision ?? "?";
-      return `HOOK  PermissionRequest  ${name}  → ${decision}`;
-    }
-    case "Stop":
-      return `HOOK  Stop              reason=${(h as any).stop_reason ?? "?"}`;
-    case "SubagentStart":
-      return `HOOK  SubagentStart     id=${(h as any).agent_id ?? "?"}`;
-    case "SubagentStop":
-      return `HOOK  SubagentStop      id=${(h as any).agent_id ?? "?"}`;
-    case "TaskCompleted":
-      return `HOOK  TaskCompleted     id=${(h as any).task_id ?? "?"}`;
-    default:
-      return `HOOK  ${event}`;
-  }
+function printHook(event: string, input: unknown) {
+  const fmt = HOOK_FMT[event];
+  print(fmt ? (fmt(input) ?? "") : `hook  ${event}`);
 }
 
 // ── Hook factory ──────────────────────────────────────────────────────────────
@@ -148,7 +123,7 @@ function summarizeHook(event: string, input: unknown): string {
 function makeHook(event: string): HookCallback {
   return async (input) => {
     logFull(`HOOK ${event}`, input);
-    print(summarizeHook(event, input));
+    printHook(event, input);
     return {};
   };
 }
@@ -207,16 +182,16 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
   })) {
     logFull("MESSAGE", message);
 
-    const m = message as Record<string, unknown>;
+    const m = message as any;
 
-    if (m.type === "system" && (m as any).subtype === "init" && !capturedSessionId) {
-      capturedSessionId = (m as any).session_id;
+    if (m.type === "system" && m.subtype === "init" && !capturedSessionId) {
+      capturedSessionId = m.session_id;
     }
 
     printMessage(message);
 
     if ("result" in m) {
-      print(`\nresult  stop=${(m as any).stop_reason ?? "?"}`);
+      print(`\nresult  stop=${m.stop_reason ?? "?"}`);
     }
   }
 
@@ -247,47 +222,43 @@ function ask(promptStr: string): Promise<string> {
     }
 
     function exit() {
-      process.stdout.write("\x1b[?2004l\r\n"); // disable bracketed paste
+      process.stdout.write("\x1b[?2004l\r\n");
       process.exit(0);
     }
 
     function processTyped(data: string) {
-      // Strip CSI escape sequences (arrow keys, function keys, etc.)
-      data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
-      data = data.replace(/\x1b./gs, "");
+      data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ""); // strip CSI sequences
+      data = data.replace(/\x1b./gs, "");                 // strip other escapes
 
       for (const ch of data) {
         const code = ch.charCodeAt(0);
-        if (ch === "\r" || ch === "\n") { submit(buffer); return; }
-        else if (ch === "\x7f" || ch === "\x08") { // backspace
+        if (ch === "\r" || ch === "\n")            { submit(buffer); return; }
+        else if (ch === "\x7f" || ch === "\x08")   { // backspace
           if (buffer.length > 0) { buffer = buffer.slice(0, -1); process.stdout.write("\b \b"); }
         }
         else if (ch === "\x03") { process.stdout.write("^C"); exit(); } // Ctrl+C
-        else if (ch === "\x04") { if (!buffer) exit(); }               // Ctrl+D on empty line
-        else if (code >= 32) { buffer += ch; process.stdout.write(ch); }
+        else if (ch === "\x04") { if (!buffer) exit(); }                // Ctrl+D on empty
+        else if (code >= 32)    { buffer += ch; process.stdout.write(ch); }
       }
     }
 
-    function echoPaste(pasted: string) {
-      // Normalize \r\n and bare \r to \n first, then emit \r\n for raw mode
-      const lines = pasted.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-      process.stdout.write(lines.join("\r\n... "));
+    function normalizePaste(s: string) {
+      return s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     }
 
-    function normalizePaste(pasted: string) {
-      return pasted.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    function echoPaste(s: string) {
+      // \n → \r\n for raw mode; indent continuation lines
+      process.stdout.write(s.split("\n").join("\r\n... "));
     }
 
     function onData(chunk: string) {
-      // If we're mid-paste, accumulate until the closing marker
       if (inPaste) {
         const end = chunk.indexOf("\x1b[201~");
         if (end !== -1) {
           pasteBuffer += chunk.slice(0, end);
           inPaste = false;
-          const pasted = pasteBuffer;
+          const normalized = normalizePaste(pasteBuffer);
           pasteBuffer = "";
-          const normalized = normalizePaste(pasted);
           echoPaste(normalized);
           submit(buffer + normalized);
         } else {
@@ -296,14 +267,12 @@ function ask(promptStr: string): Promise<string> {
         return;
       }
 
-      // Check for paste start marker
       const start = chunk.indexOf("\x1b[200~");
       if (start !== -1) {
-        processTyped(chunk.slice(0, start)); // handle anything typed before the paste
-        const rest = chunk.slice(start + 6); // skip \x1b[200~
+        processTyped(chunk.slice(0, start));
+        const rest = chunk.slice(start + 6);
         const end = rest.indexOf("\x1b[201~");
         if (end !== -1) {
-          // Entire paste arrived in one chunk
           const normalized = normalizePaste(rest.slice(0, end));
           echoPaste(normalized);
           submit(buffer + normalized);
