@@ -195,7 +195,7 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
   if (sessionId) print(`  session: ${sessionId}`);
   print(hr("═"));
 
-  logFull("QUERY", { prompt, sessionId });
+  fs.appendFileSync(LOG_FILE, `\n${new Date().toISOString()}  QUERY  ${prompt}\n`);
 
   let capturedSessionId = sessionId;
 
@@ -209,7 +209,11 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
       hooks,
     },
   })) {
-    logFull("MESSAGE", message);
+    if ("result" in (message as any)) {
+      fs.appendFileSync(LOG_FILE, `\n${new Date().toISOString()}  RESULT  stop=${(message as any).stop_reason ?? "?"}\n`);
+    } else {
+      logFull("MESSAGE", message);
+    }
 
     const m = message as Record<string, unknown>;
 
