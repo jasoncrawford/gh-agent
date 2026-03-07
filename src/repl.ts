@@ -179,6 +179,11 @@ const hooks = Object.fromEntries(
   ])
 ) as Record<HookEvent, [{ matcher: string; hooks: [HookCallback] }]>;
 
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const BYPASS = process.argv.includes("--dangerously-skip-permissions");
+const PERMISSION_MODE = BYPASS ? "bypassPermissions" : "acceptEdits";
+
 // ── REPL ──────────────────────────────────────────────────────────────────────
 
 async function runQuery(prompt: string, sessionId: string | undefined) {
@@ -195,7 +200,8 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
     prompt,
     options: {
       cwd: process.cwd(),
-      permissionMode: "dontAsk",
+      permissionMode: PERMISSION_MODE,
+      ...(BYPASS ? { allowDangerouslySkipPermissions: true } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
       hooks,
     },
@@ -233,7 +239,8 @@ async function main() {
 
   print(hr("═"));
   print("  Claude Agent SDK REPL");
-  print(`  Full details logged to ${LOG_FILE}. Type 'exit' or 'reset'.`);
+  print(`  Permissions: ${PERMISSION_MODE}. Full details logged to ${LOG_FILE}.`);
+  print(`  Type 'exit' to quit, 'reset' to start a new session.`);
   print(hr("═"));
 
   while (true) {
