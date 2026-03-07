@@ -190,10 +190,7 @@ const PERMISSION_MODE = BYPASS ? "bypassPermissions" : "acceptEdits";
 // ── REPL ──────────────────────────────────────────────────────────────────────
 
 async function runQuery(prompt: string, sessionId: string | undefined) {
-  print(`\n${hr("═")}`);
-  print(`  > ${trunc(prompt, W - 4)}`);
-  if (sessionId) print(`  session: ${sessionId}`);
-  print(hr("═"));
+  print(`\n> ${trunc(prompt, W - 2)}`);
 
   logFull("QUERY", { prompt, sessionId });
 
@@ -220,9 +217,7 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
     printMessage(message);
 
     if ("result" in m) {
-      print(`\n${hr("═")}  RESULT  stop=${(m as any).stop_reason ?? "?"}`);
-      print(String(m.result ?? ""));
-      print(hr("═"));
+      print(`\nresult  stop=${(m as any).stop_reason ?? "?"}`);
     }
   }
 
