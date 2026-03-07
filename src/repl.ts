@@ -269,8 +269,13 @@ function ask(promptStr: string): Promise<string> {
     }
 
     function echoPaste(pasted: string) {
-      // In raw mode \n doesn't CR; use \r\n and indent continuation lines
-      process.stdout.write(pasted.replace(/\n/g, "\r\n... "));
+      // Normalize \r\n and bare \r to \n first, then emit \r\n for raw mode
+      const lines = pasted.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+      process.stdout.write(lines.join("\r\n... "));
+    }
+
+    function normalizePaste(pasted: string) {
+      return pasted.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     }
 
     function onData(chunk: string) {
@@ -282,8 +287,9 @@ function ask(promptStr: string): Promise<string> {
           inPaste = false;
           const pasted = pasteBuffer;
           pasteBuffer = "";
-          echoPaste(pasted);
-          submit(buffer + pasted);
+          const normalized = normalizePaste(pasted);
+          echoPaste(normalized);
+          submit(buffer + normalized);
         } else {
           pasteBuffer += chunk;
         }
@@ -298,9 +304,9 @@ function ask(promptStr: string): Promise<string> {
         const end = rest.indexOf("\x1b[201~");
         if (end !== -1) {
           // Entire paste arrived in one chunk
-          const pasted = rest.slice(0, end);
-          echoPaste(pasted);
-          submit(buffer + pasted);
+          const normalized = normalizePaste(rest.slice(0, end));
+          echoPaste(normalized);
+          submit(buffer + normalized);
         } else {
           pasteBuffer = rest;
           inPaste = true;
