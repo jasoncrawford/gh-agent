@@ -32,75 +32,65 @@ function print(line: string) {
 
 // ── Message printer ───────────────────────────────────────────────────────────
 
+function printBlock(b: any, role: "assistant" | "user") {
+  if (b.type === "thinking") {
+    print(`\n[thinking]`);
+    print(String(b.thinking ?? ""));
+    print(`[/thinking]\n`);
+  } else if (b.type === "text") {
+    print(String(b.text ?? ""));
+  } else if (b.type === "tool_use") {
+    // assistant requesting a tool call
+    const args = Object.entries(b.input ?? {})
+      .map(([k, v]) => `${k}=${trunc(String(v), 50)}`)
+      .join(", ");
+    print(`>> ${b.name}(${args})`);
+  } else if (b.type === "tool_result") {
+    // user returning a tool result
+    const raw = b.content;
+    const text = typeof raw === "string"
+      ? raw
+      : (Array.isArray(raw) ? raw : [raw])
+          .filter((x: any) => x?.type === "text")
+          .map((x: any) => x.text)
+          .join(" ");
+    print(b.is_error ? `!! ${trunc(text, 100)}` : `<< ${trunc(text, 100)}`);
+  } else {
+    print(`[${role}/${b.type}]`);
+  }
+}
+
 function printMessage(msg: unknown) {
   const m = msg as Record<string, unknown>;
   const type = m.type as string;
 
+  // result is rendered by runQuery; skip here to avoid duplication
+  if ("result" in m) return;
+
   if (type === "system") {
     const sub = (m as any).subtype as string;
-    if (sub === "init") print(`MSG   system/init       session=${m.session_id}`);
-    else if (sub === "task_started") print(`MSG   task_started      id=${(m as any).task_id}`);
+    if (sub === "init")              print(`session  ${(m as any).session_id}`);
+    else if (sub === "task_started") print(`task started  id=${(m as any).task_id}`);
     else if (sub === "task_progress") {
       const p = m as any;
-      print(`MSG   task_progress     turns=${p.turns ?? "?"} tools=${p.tool_use_count ?? "?"}`);
-    } else if (sub === "task_notification") {
-      print(`MSG   task_notification ${trunc(String((m as any).message ?? ""), 50)}`);
-    } else {
-      print(`MSG   system/${sub}`);
+      print(`task progress  turns=${p.turns ?? "?"} tools=${p.tool_use_count ?? "?"}`);
     }
+    else if (sub === "task_notification") print(`task  ${trunc(String((m as any).message ?? ""), 70)}`);
+    else                             print(`system/${sub}`);
     return;
   }
 
   if (type === "assistant") {
     const content = ((m.message as any)?.content ?? []) as any[];
-    print(`MSG   assistant         (${content.length} block${content.length !== 1 ? "s" : ""})`);
-    for (const b of content) {
-      if (b.type === "thinking") {
-        print(`\n${hr()}  [thinking]`);
-        print(String(b.thinking ?? ""));
-        print(hr());
-      } else if (b.type === "text") {
-        print(`\n${hr()}  [text]`);
-        print(String(b.text ?? ""));
-        print(hr());
-      } else if (b.type === "tool_use") {
-        const args = Object.entries(b.input ?? {})
-          .map(([k, v]) => `${k}=${trunc(String(v), 40)}`)
-          .join(", ");
-        print(`  TOOL_USE  ${b.name}(${args})`);
-      } else {
-        print(`  block/${b.type}`);
-      }
-    }
+    if (content.length === 0) { print(`[assistant — empty]`); return; }
+    for (const b of content) printBlock(b, "assistant");
     return;
   }
 
   if (type === "user") {
     const content = ((m.message as any)?.content ?? []) as any[];
-    print(`MSG   user              (${content.length} block${content.length !== 1 ? "s" : ""})`);
-    for (const b of content) {
-      if (b.type === "tool_result") {
-        const raw = b.content;
-        const text = typeof raw === "string"
-          ? raw
-          : (Array.isArray(raw) ? raw : [raw])
-              .filter((x: any) => x?.type === "text")
-              .map((x: any) => x.text)
-              .join(" ");
-        const prefix = b.is_error ? "TOOL_ERROR" : "TOOL_RESULT";
-        print(`  ${prefix}  id=${b.tool_use_id}  ${trunc(text, 60)}`);
-      } else if (b.type === "text") {
-        print(`  text: ${trunc(String(b.text ?? ""), 80)}`);
-      } else {
-        print(`  block/${b.type}`);
-      }
-    }
-    return;
-  }
-
-  if ("result" in m) {
-    const stop = (m as any).stop_reason ?? "?";
-    print(`MSG   result            stop=${stop}`);
+    if (content.length === 0) { print(`[user — empty]`); return; }
+    for (const b of content) printBlock(b, "user");
     return;
   }
 
