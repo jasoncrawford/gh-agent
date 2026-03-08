@@ -140,18 +140,18 @@ const BLOCK_FMT: FmtTable = {
 
 // Tool call formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_CALL_FMT: FmtTable = {
-  Bash:     (b) => c.lavender(`\n$ ${trunc(b.input?.command ?? "", 80)}`) + (b.input?.description ? c.gray(` # ${b.input.description}`) : ""),
-  Read:     (b) => c.lavender(`\n• Read(${b.input?.file_path ?? "?"})`),
-  Write:    (b) => c.lavender(`\n• Write(${b.input?.file_path ?? "?"})`),
-  Edit:     (b) => c.lavender(`\n• Edit(${b.input?.file_path ?? "?"})`),
-  Glob:     (b) => c.lavender(`\n• Glob(${b.input?.pattern ?? "?"})`),
-  Grep:     (b) => c.lavender(`\n• grep ${trunc(b.input?.pattern ?? "?", 30)} ${b.input?.path ?? "."}`),
-  _default: (b) => c.lavender(`\n• ${b.name}(${fmtArgs(b.input)})`),
+  Bash:     (b) => c.sageGreen(`\n$ ${trunc(b.input?.command ?? "", 80)}`) + (b.input?.description ? c.gray(` # ${b.input.description}`) : ""),
+  Read:     (b) => c.sageGreen(`\n• Read(${b.input?.file_path ?? "?"})`),
+  Write:    (b) => c.sageGreen(`\n• Write(${b.input?.file_path ?? "?"})`),
+  Edit:     (b) => c.sageGreen(`\n• Edit(${b.input?.file_path ?? "?"})`),
+  Glob:     (b) => c.sageGreen(`\n• Glob(${b.input?.pattern ?? "?"})`),
+  Grep:     (b) => c.sageGreen(`\n• grep ${trunc(b.input?.pattern ?? "?", 30)} ${b.input?.path ?? "."}`),
+  _default: (b) => c.sageGreen(`\n• ${b.name}(${fmtArgs(b.input)})`),
 };
 
 // Tool success result formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_RESULT_FMT: FmtTable = {
-  _default: (b) => c.lavender(`→ ${trunc(toolResultText(b), 100)}`),
+  _default: (b) => c.sageGreen(`→ ${trunc(toolResultText(b), 100)}`),
 };
 
 // Tool error result formatters, keyed by tool name. _default is the generic fallback.
@@ -163,9 +163,9 @@ const TOOL_ERROR_FMT: FmtTable = {
 // Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: FmtTable = {
   init:              { verbose: (m) => c.darkGray(`session: ${m.session_id}`) },
-  task_started:      (m) => c.lavender(`  ▶ agent task started`),
-  task_progress:     (m) => c.lavender(`  … ${fmtCount(m.turns ?? 0, "turn")}, ${fmtCount(m.tool_use_count ?? 0, "tool call")}`),
-  task_notification: (m) => c.lavender(`  ℹ ${trunc(String(m.message ?? ""), 80)}`),
+  task_started:      (m) => c.lavender(`  ▶ agent started: ${m.description}`),
+  task_progress:     (m) => c.lavender(`  • ${m.description}`),
+  task_notification: (m) => c.lavender(`  ◀︎ ${m.status}: ${m.summary}`),
   _default:          { verbose: (m) => c.darkGray(`system/${m.subtype}`) },
 };
 
