@@ -54,7 +54,7 @@ type Fmt = (data: any) => string | null;
 // Engine injects: _role ("assistant" | "user")
 const BLOCK_FMT: Record<string, Fmt> = {
   _default:    (b) => `[${b._role}/${b.type}]`,
-  thinking:    (b) => `\n[thinking]\n${b.thinking ?? ""}\n[/thinking]\n`,
+  thinking:    (b) => `think: ${b.thinking ?? ""}`,
   text:        (b) => String(b.text ?? ""),
   tool_use:    (b) => `>> ${b.name}(${fmtArgs(b.input)})`,
   tool_result: (b) => (b.is_error ? `!! ` : `<< `) + trunc(toolResultText(b), 100),
@@ -63,36 +63,36 @@ const BLOCK_FMT: Record<string, Fmt> = {
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: Record<string, Fmt> = {
-  init:              (m) => `session  ${m.session_id}`,
-  task_started:      (m) => `task started  id=${m.task_id}`,
-  task_progress:     (m) => `task progress  turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
-  task_notification: (m) => `task  ${trunc(String(m.message ?? ""), 70)}`,
+  init:              (m) => `init: ${m.session_id}`,
+  task_started:      (m) => `task started:  id=${m.task_id}`,
+  task_progress:     (m) => `task progress:  turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
+  task_notification: (m) => `task notif: ${trunc(String(m.message ?? ""), 70)}`,
   _default:          (m) => `system/${m.subtype}`,
 };
 
 // Top-level message types (other than system, assistant, user)
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: Record<string, Fmt> = {
-  result:           (m) => `result  stop=${m.stop_reason ?? "?"}`,
-  rate_limit_event: (m) => `rate limit  status=${m.status ?? "?"}`,
+  result:           (m) => `result: stop=${m.stop_reason ?? "?"}`,
+  rate_limit_event: (m) => `rate limit:  status=${m.status ?? "?"}`,
   _empty:           (m) => `[${m.type} — empty]`,
-  _default:         (m) => `MSG   ${m.type}`,
+  _default:         (m) => `msg: ${m.type}`,
 };
 
 // Hook events
 // Engine injects: _event (the hook event name)
 const HOOK_FMT: Record<string, Fmt> = {
-  PreToolUse:         (h) => `hook pre   ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
-  PostToolUse:        (h) => `hook post  ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`,
-  PostToolUseFailure: (h) => `hook fail  ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`,
-  Notification:       (h) => `hook note  "${trunc(String(h.message ?? ""), 60)}"`,
-  UserPromptSubmit:   (h) => `hook prompt  "${trunc(String(h.prompt ?? ""), 60)}"`,
-  PermissionRequest:  (h) => `hook perm  ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`,
-  Stop:               (h) => `hook stop  reason=${h.stop_reason ?? "?"}`,
-  SubagentStart:      (h) => `hook subagent start  id=${h.agent_id ?? "?"}`,
-  SubagentStop:       (h) => `hook subagent stop   id=${h.agent_id ?? "?"}`,
-  TaskCompleted:      (h) => `hook task completed  id=${h.task_id ?? "?"}`,
-  _default:           (h) => `hook  ${h._event}`,
+  PreToolUse:         (h) => `hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
+  PostToolUse:        (h) => `hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`,
+  PostToolUseFailure: (h) => `hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`,
+  Notification:       (h) => `hook: notif "${trunc(String(h.message ?? ""), 60)}"`,
+  UserPromptSubmit:   (h) => `hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"`,
+  PermissionRequest:  (h) => `hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`,
+  Stop:               (h) => `hook: stop reason=${h.stop_reason ?? "?"}`,
+  SubagentStart:      (h) => `hook: subagent start id=${h.agent_id ?? "?"}`,
+  SubagentStop:       (h) => `hook: subagent stop  id=${h.agent_id ?? "?"}`,
+  TaskCompleted:      (h) => `hook: task completed id=${h.task_id ?? "?"}`,
+  _default:           (h) => `hook: ${h._event}`,
 };
 
 // ── Printing engine ───────────────────────────────────────────────────────────
