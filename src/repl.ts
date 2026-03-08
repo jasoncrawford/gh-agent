@@ -63,11 +63,62 @@ const c = {
 };
 
 const s = {
-  bold:      (s: string) => `\x1b[1m${s}\x1b[22m`,
-  dim:       (s: string) => `\x1b[2m${s}\x1b[22m`,
-  italic:    (s: string) => `\x1b[3m${s}\x1b[23m`,
-  underline: (s: string) => `\x1b[4m${s}\x1b[24m`,
+  bold:          (s: string) => `\x1b[1m${s}\x1b[22m`,
+  dim:           (s: string) => `\x1b[2m${s}\x1b[22m`,
+  italic:        (s: string) => `\x1b[3m${s}\x1b[23m`,
+  underline:     (s: string) => `\x1b[4m${s}\x1b[24m`,
+  strikethrough: (s: string) => `\x1b[9m${s}\x1b[29m`,
 };
+
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+// Handles the subset of Markdown Claude commonly produces.
+// Uses only targeted-reset style helpers (s.*) so the caller's color is preserved.
+
+function mdInline(text: string): string {
+  text = text.replace(/\*\*(.+?)\*\*/gs,  (_, t) => s.bold(t));
+  text = text.replace(/__(.+?)__/gs,      (_, t) => s.bold(t));
+  // Note: strikethrough and italic are left as raw Markdown (~~text~~, *text*)
+  // because Terminal.app doesn't render \x1b[9m or \x1b[3m.
+  text = text.replace(/`([^`]+)`/g,       (_, t) => s.bold(s.underline(t)));
+  return text;
+}
+
+function renderMarkdown(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let inCode = false;
+  const codeLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      if (!inCode) { inCode = true; codeLines.length = 0; }
+      else         { inCode = false; out.push(codeLines.map(l => "  " + l).join("\n")); }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    if (/^[-*_]{3,}\s*$/.test(line)) { out.push("─".repeat(W)); continue; }
+
+    const heading = line.match(/^(#{1,6})\s+(.*)/);
+    if (heading) {
+      const text = mdInline(heading[2]);
+      out.push(s.bold(heading[1] === "#" ? text.toUpperCase() : text));
+      continue;
+    }
+
+    if (line.startsWith("> ")) { out.push("▏ " + mdInline(line.slice(2))); continue; }
+
+    const li = line.match(/^(\s*)[-*+]\s+(.*)/);
+    if (li) { out.push(li[1] + "• " + mdInline(li[2])); continue; }
+
+    const oli = line.match(/^(\s*)(\d+)\.\s+(.*)/);
+    if (oli) { out.push(oli[1] + oli[2] + ". " + mdInline(oli[3])); continue; }
+
+    out.push(mdInline(line));
+  }
+
+  return out.join("\n");
+}
 
 // ── FORMATS ───────────────────────────────────────────────────────────────────
 // Edit these to change what gets printed to the console.
@@ -82,8 +133,8 @@ type FmtTable = Record<string, FmtEntry>;
 // Engine injects: _role ("assistant" | "user")
 // tool_use and tool_result are handled separately via TOOL_CALL_FMT / TOOL_RESULT_FMT.
 const BLOCK_FMT: FmtTable = {
-  thinking: (b) => c.gray(`\n${b.thinking ?? ""}`),
-  text:     (b) => c.skyBlue(`\n${b.text ?? ""}`),
+  thinking: (b) => c.gray(`\n${renderMarkdown(b.thinking ?? "")}`),
+  text:     (b) => c.skyBlue(`\n${renderMarkdown(b.text ?? "")}`),
   _default: (b) => c.darkGray(`[${b._role}/${b.type}]`),
 };
 
