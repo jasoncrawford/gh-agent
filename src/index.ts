@@ -2,6 +2,8 @@ import { Webhooks } from "@octokit/webhooks";
 import http from "http";
 import "dotenv/config";
 
+type R = Record<string, unknown>;
+
 const PORT = parseInt(process.env.PORT ?? "3000");
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
@@ -30,8 +32,6 @@ function printEvent(id: string, name: string, payload: unknown) {
   details(name, p);
   console.log("═".repeat(70));
 }
-
-type R = Record<string, unknown>;
 
 function field(label: string, value: unknown) {
   if (value == null || value === "" || value === false) return;
@@ -163,7 +163,7 @@ const server = http.createServer(async (req, res) => {
     for await (const chunk of req) {
       chunks.push(chunk as Buffer);
     }
-    const body = Buffer.concat(chunks).toString();
+    const rawBody = Buffer.concat(chunks).toString();
 
     const id = (req.headers["x-github-delivery"] as string) ?? "unknown";
     const name = req.headers["x-github-event"] as string;
@@ -186,10 +186,10 @@ const server = http.createServer(async (req, res) => {
           id,
           name: name as Parameters<typeof webhooks.verifyAndReceive>[0]["name"],
           signature,
-          payload: body,
+          payload: rawBody,
         });
       } else {
-        printEvent(id, name, JSON.parse(body));
+        printEvent(id, name, JSON.parse(rawBody));
       }
       res.writeHead(200);
       res.end("OK");
