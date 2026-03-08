@@ -585,11 +585,11 @@ async function main() {
 
   let sessionId: string | undefined;
 
-  print(hr("═"));
-  print("  Claude Agent SDK REPL");
-  print(`  Permissions: ${PERMISSION_MODE} | Output: ${VERBOSE ? "verbose" : "quiet"} | Log: ${LOG_FILE}`);
-  print(`  Type 'exit' to quit, 'reset' to start a new session.`);
-  print(hr("═"));
+  print(c.sageGreen(hr("═")));
+  print(c.skyBlue(s.bold("  Claude Agent SDK REPL")));
+  print(c.lavender(`  Permissions: ${PERMISSION_MODE} | Output: ${VERBOSE ? "verbose" : "quiet"} | Log: ${LOG_FILE}`));
+  print(c.lavender(`  Type 'exit' to quit, 'reset' to start a new session.`));
+  print(c.sageGreen(hr("═")));
 
   while (true) {
     const input = await ask("\n> ");
