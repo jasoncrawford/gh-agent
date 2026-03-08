@@ -59,6 +59,7 @@ const c = {
   boldRed:   (s: string) => `\x1b[1;31m${s}\x1b[0m`,
   darkGray:  (s: string) => `\x1b[90m${s}\x1b[0m`,
   yellow:    (s: string) => `\x1b[38;5;221m${s}\x1b[0m`,
+  lavender:  (s: string) => `\x1b[38;5;183m${s}\x1b[0m`,
 };
 
 // ── FORMATS ───────────────────────────────────────────────────────────────────
@@ -81,30 +82,30 @@ const BLOCK_FMT: FmtTable = {
 
 // Tool call formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_CALL_FMT: FmtTable = {
-  _default: (b) => c.amber(`\n>> ${b.name}(${fmtArgs(b.input)})`),
-  Bash:     (b) => c.amber(`\n>> Bash: ${trunc(b.input?.command ?? "", 80)}`),
-  Read:     (b) => c.amber(`\n>> Read: ${b.input?.file_path ?? "?"}`),
-  Write:    (b) => c.amber(`\n>> Write: ${b.input?.file_path ?? "?"}`),
-  Edit:     (b) => c.amber(`\n>> Edit: ${b.input?.file_path ?? "?"}`),
-  Glob:     (b) => c.amber(`\n>> Glob: ${b.input?.pattern ?? "?"}`),
-  Grep:     (b) => c.amber(`\n>> Grep: ${trunc(b.input?.pattern ?? "?", 30)} in ${b.input?.path ?? "."}`),
+  Bash:     (b) => c.lavender(`\n$ ${trunc(b.input?.command ?? "", 80)}`) + (b.input?.description ? c.gray(` # ${b.input.description}`) : ""),
+  Read:     (b) => c.lavender(`\n• Read(${b.input?.file_path ?? "?"})`),
+  Write:    (b) => c.lavender(`\n• Write(${b.input?.file_path ?? "?"})`),
+  Edit:     (b) => c.lavender(`\n• Edit(${b.input?.file_path ?? "?"})`),
+  Glob:     (b) => c.lavender(`\n• Glob(${b.input?.pattern ?? "?"})`),
+  Grep:     (b) => c.lavender(`\n• grep ${trunc(b.input?.pattern ?? "?", 30)} ${b.input?.path ?? "."}`),
+  _default: (b) => c.lavender(`\n• ${b.name}(${fmtArgs(b.input)})`),
 };
 
 // Tool success result formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_RESULT_FMT: FmtTable = {
-  _default: (b) => c.sageGreen(`<< ${trunc(toolResultText(b), 100)}`),
+  _default: (b) => c.lavender(`→ ${trunc(toolResultText(b), 100)}`),
 };
 
 // Tool error result formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_ERROR_FMT: FmtTable = {
-  _default: (b) => c.salmon(`!! ${trunc(toolResultText(b), 100)}`),
+  _default: (b) => c.salmon(`! ${trunc(toolResultText(b), 100)}`),
 };
 
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: FmtTable = {
-  init:              { verbose: (m) => c.darkGray(`init: ${m.session_id}`) },
-  _default:          (m) => c.darkGray(`system/${m.subtype}`),
+  init:     { verbose: (m) => c.darkGray(`session: ${m.session_id}`) },
+  _default: (m) => c.darkGray(`system/${m.subtype}`),
 };
 
 // Top-level message types (other than system, assistant, user)
