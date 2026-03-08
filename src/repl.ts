@@ -162,8 +162,11 @@ const TOOL_ERROR_FMT: FmtTable = {
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: FmtTable = {
-  init:     { verbose: (m) => c.darkGray(`session: ${m.session_id}`) },
-  _default: (m) => c.darkGray(`system/${m.subtype}`),
+  init:              { verbose: (m) => c.darkGray(`session: ${m.session_id}`) },
+  task_started:      (m) => c.lavender(`  ▶ agent task started`),
+  task_progress:     (m) => c.lavender(`  … ${fmtCount(m.turns ?? 0, "turn")}, ${fmtCount(m.tool_use_count ?? 0, "tool call")}`),
+  task_notification: (m) => c.lavender(`  ℹ ${trunc(String(m.message ?? ""), 80)}`),
+  _default:          { verbose: (m) => c.darkGray(`system/${m.subtype}`) },
 };
 
 // Top-level message types (other than system, assistant, user)
@@ -224,6 +227,10 @@ function printBlock(b: any, role: "assistant" | "user") {
 
 function printMessage(msg: unknown) {
   const m = msg as any;
+
+  // Suppress messages from subagents (they have a non-null parent_tool_use_id).
+  // Task progress system messages are top-level and don't have this field.
+  if (m.parent_tool_use_id != null) return;
 
   if (m.type === "system") {
     print(resolve(SYSTEM_FMT, m.subtype, m));
