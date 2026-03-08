@@ -30,6 +30,16 @@ function fmtCount(count: number, singular_noun: string, plural_noun?: string) {
   return `${count} ${noun}`
 }
 
+function fmtStats(secs: number, turns?: number, outputTokens?: number, inputTokens?: number): string {
+  const parts: string[] = [`${secs}s`];
+  if (turns) parts.push(fmtCount(turns, "turn"));
+  if (outputTokens) {
+    const tok = inputTokens != null ? `tokens: ${inputTokens} in / ${outputTokens} out` : `tokens: ${outputTokens} out`;
+    parts.push(tok);
+  }
+  return parts.join(", ");
+}
+
 function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
   return Object.entries(input ?? {})
     .map(([k, v]) => `${k}=${trunc(String(v), maxVal)}`)
@@ -241,7 +251,7 @@ const SYSTEM_FMT: FmtTable = {
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: FmtTable = {
   _empty:           (m) => c.darkGray(`[${m.type} — empty]`),
-  result:           (m) => c.darkGray(`\n${fmtCount(m.num_turns, 'turn')}, ${m.duration_ms/1000}s, tokens: ${m.usage.input_tokens} in / ${m.usage.output_tokens} out`),
+  result:           (m) => c.darkGray(`\n${fmtStats(Math.round(m.duration_ms / 1000), m.num_turns, m.usage.output_tokens, m.usage.input_tokens)}`),
   rate_limit_event: { verbose: (m) => c.darkGray(`rate limit: status=${m.rate_limit_info?.status ?? "?"}`) },
   _default:         (m) => c.darkGray(`msg: ${m.type}`),
 };
@@ -413,9 +423,14 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
   logFull("QUERY", { prompt, sessionId });
 
   const startTime = Date.now();
+  // Accumulate stats from stream_event messages to show in the status line.
+  // message_delta.usage.output_tokens is cumulative per message, so we sum
+  // completed messages and track the current one separately.
+  const stats = { turns: 0, inputTokens: 0, completedOutputTokens: 0, currentOutputTokens: 0 };
   startStatus(() => {
     const secs = Math.floor((Date.now() - startTime) / 1000);
-    return c.darkGray(`Working… ${secs}s`);
+    const outTokens = stats.completedOutputTokens + stats.currentOutputTokens;
+    return c.darkGray(`Working… ${fmtStats(secs, stats.turns || undefined, outTokens || undefined, stats.inputTokens || undefined)}`);
   });
 
   let capturedSessionId = sessionId;
@@ -427,17 +442,31 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
       systemPrompt: { type: "preset", preset: "claude_code" },
       settingSources: ["user", "project"],
       permissionMode: PERMISSION_MODE,
+      includePartialMessages: true,
       ...(BYPASS ? { allowDangerouslySkipPermissions: true } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
       hooks,
     },
   })) {
-    logFull("MESSAGE", message);
-
     const m = message as any;
+
+    if (!(m.type === "stream_event" && m.event?.type === "content_block_delta")) {
+      logFull("MESSAGE", message);
+    }
 
     if (m.type === "system" && m.subtype === "init" && !capturedSessionId) {
       capturedSessionId = m.session_id;
+    }
+
+    // Extract turn count and token totals from streaming events.
+    if (m.type === "stream_event") {
+      if (m.parent_tool_use_id == null) {
+        const ev = m.event;
+        if (ev.type === "message_start")       { stats.turns++; stats.inputTokens += ev.message?.usage?.input_tokens ?? 0; }
+        if (ev.type === "message_delta")       stats.currentOutputTokens = ev.usage?.output_tokens ?? stats.currentOutputTokens;
+        if (ev.type === "message_stop")        { stats.completedOutputTokens += stats.currentOutputTokens; stats.currentOutputTokens = 0; }
+      }
+      continue; // stream events are display-only; don't pass to printMessage
     }
 
     // Stop the status line before printing the result so it transitions
