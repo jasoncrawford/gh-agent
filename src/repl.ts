@@ -72,14 +72,32 @@ type FmtTable = Record<string, FmtEntry>;
 
 // Content blocks within assistant/user messages
 // Engine injects: _role ("assistant" | "user")
+// tool_use and tool_result are handled separately via TOOL_CALL_FMT / TOOL_RESULT_FMT.
 const BLOCK_FMT: FmtTable = {
-  thinking:    (b) => c.gray(`\n${b.thinking ?? ""}`),
-  text:        (b) => c.skyBlue(`\n${b.text ?? ""}`),
-  tool_use:    (b) => c.sageGreen(`\n>> ${b.name}(${fmtArgs(b.input)})`),
-  tool_result: (b) => b.is_error
-    ? c.salmon(`!! ${trunc(toolResultText(b), 100)}`)
-    : c.sageGreen(`<< ${trunc(toolResultText(b), 100)}`),
-  _default:    (b) => c.darkGray(`[${b._role}/${b.type}]`),
+  thinking: (b) => c.gray(`\n${b.thinking ?? ""}`),
+  text:     (b) => c.skyBlue(`\n${b.text ?? ""}`),
+  _default: (b) => c.darkGray(`[${b._role}/${b.type}]`),
+};
+
+// Tool call formatters, keyed by tool name. _default is the generic fallback.
+const TOOL_CALL_FMT: FmtTable = {
+  _default: (b) => c.amber(`\n>> ${b.name}(${fmtArgs(b.input)})`),
+  Bash:     (b) => c.amber(`\n>> Bash: ${trunc(b.input?.command ?? "", 80)}`),
+  Read:     (b) => c.amber(`\n>> Read: ${b.input?.file_path ?? "?"}`),
+  Write:    (b) => c.amber(`\n>> Write: ${b.input?.file_path ?? "?"}`),
+  Edit:     (b) => c.amber(`\n>> Edit: ${b.input?.file_path ?? "?"}`),
+  Glob:     (b) => c.amber(`\n>> Glob: ${b.input?.pattern ?? "?"}`),
+  Grep:     (b) => c.amber(`\n>> Grep: ${trunc(b.input?.pattern ?? "?", 30)} in ${b.input?.path ?? "."}`),
+};
+
+// Tool success result formatters, keyed by tool name. _default is the generic fallback.
+const TOOL_RESULT_FMT: FmtTable = {
+  _default: (b) => c.sageGreen(`<< ${trunc(toolResultText(b), 100)}`),
+};
+
+// Tool error result formatters, keyed by tool name. _default is the generic fallback.
+const TOOL_ERROR_FMT: FmtTable = {
+  _default: (b) => c.salmon(`!! ${trunc(toolResultText(b), 100)}`),
 };
 
 // system/* message subtypes
@@ -128,7 +146,20 @@ function resolve(table: FmtTable, key: string, data: any): string | null {
   return fmt ? fmt(data) : null;
 }
 
+// Maps tool_use_id → tool name so tool_result blocks can look up their tool.
+const toolUseNames = new Map<string, string>();
+
 function printBlock(b: any, role: "assistant" | "user") {
+  if (b.type === "tool_use") {
+    toolUseNames.set(b.id, b.name);
+    print(resolve(TOOL_CALL_FMT, b.name, b));
+    return;
+  }
+  if (b.type === "tool_result") {
+    const name = toolUseNames.get(b.tool_use_id) ?? "";
+    print(resolve(b.is_error ? TOOL_ERROR_FMT : TOOL_RESULT_FMT, name, b));
+    return;
+  }
   print(resolve(BLOCK_FMT, b.type, { ...b, _role: role }));
 }
 
