@@ -74,7 +74,7 @@ const SYSTEM_FMT: Record<string, Fmt> = {
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: Record<string, Fmt> = {
   result:           (m) => `result: stop=${m.stop_reason ?? "?"}`,
-  rate_limit_event: (m) => `rate limit:  status=${m.status ?? "?"}`,
+  rate_limit_event: (m) => `rate limit: status=${m.rate_limit_info.status ?? "?"}`,
   _empty:           (m) => `[${m.type} — empty]`,
   _default:         (m) => `msg: ${m.type}`,
 };
@@ -177,8 +177,6 @@ const PERMISSION_MODE = BYPASS ? "bypassPermissions" : "acceptEdits";
 // ── REPL ──────────────────────────────────────────────────────────────────────
 
 async function runQuery(prompt: string, sessionId: string | undefined) {
-  print(`\n> ${trunc(prompt, W - 2)}`);
-
   logFull("QUERY", { prompt, sessionId });
 
   let capturedSessionId = sessionId;
