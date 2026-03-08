@@ -246,8 +246,8 @@ function ask(promptStr: string): Promise<string> {
 
     function insert(ch: string) {
       buffer = buffer.slice(0, cursor) + ch + buffer.slice(cursor);
+      redrawSuffix(); // cursor still points at new char, so rest includes it
       cursor++;
-      redrawSuffix();
     }
 
     function deleteBack() {
