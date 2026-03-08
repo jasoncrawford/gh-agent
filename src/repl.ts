@@ -192,6 +192,7 @@ const TOOL_CALL_FMT: FmtTable = {
   Edit:     (b) => c.sageGreen(`\n• Edit(${b.input?.file_path ?? "?"})`),
   Glob:     (b) => c.sageGreen(`\n• Glob(${b.input?.pattern ?? "?"})`),
   Grep:     (b) => c.sageGreen(`\n• grep ${trunc(b.input?.pattern ?? "?", 30)} ${b.input?.path ?? "."}`),
+  Skill:    (b) => c.sageGreen(`\n• Skill(${b.input?.skill ?? "?"})`),
   _default: (b) => c.sageGreen(`\n• ${b.name}(${fmtArgs(b.input)})`),
 };
 
@@ -203,6 +204,7 @@ const TOOL_RESULT_FMT: FmtTable = {
     const patch = b._msg?.tool_use_result?.structuredPatch;
     return (patch && patch.length > 0) ? fmtDiff(patch) : c.sageGreen(`→ ${trunc(toolResultText(b), 100)}`);
   },
+  Skill:    (b) => null,
 };
 
 // Tool error result formatters, keyed by tool name. _default is the generic fallback.
