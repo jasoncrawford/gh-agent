@@ -246,8 +246,11 @@ function ask(promptStr: string): Promise<string> {
 
     function insert(ch: string) {
       buffer = buffer.slice(0, cursor) + ch + buffer.slice(cursor);
-      redrawSuffix(); // cursor still points at new char, so rest includes it
       cursor++;
+      // Write ch + everything after it, then move back to just after ch
+      const rest = buffer.slice(cursor);
+      process.stdout.write(ch + rest + "\x1b[K");
+      if (rest.length) process.stdout.write(`\x1b[${rest.length}D`);
     }
 
     function deleteBack() {
