@@ -482,9 +482,12 @@ function ask(promptStr: string): Promise<string> {
       return s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     }
 
-    function echoPaste(s: string) {
-      // \n → \r\n for raw mode; indent continuation lines
-      process.stdout.write(s.split("\n").join("\r\n... "));
+    function insertPaste(str: string) {
+      buffer = buffer.slice(0, cursor) + str + buffer.slice(cursor);
+      cursor += str.length;
+      // Echo with \r\n... for newlines, then redraw any suffix after cursor
+      process.stdout.write(str.split("\n").join("\r\n... "));
+      redrawSuffix();
     }
 
     function onData(chunk: string) {
@@ -495,8 +498,7 @@ function ask(promptStr: string): Promise<string> {
           inPaste = false;
           const normalized = normalizePaste(pasteBuffer);
           pasteBuffer = "";
-          echoPaste(normalized);
-          submit(buffer + normalized);
+          insertPaste(normalized);
         } else {
           pasteBuffer += chunk;
         }
@@ -509,9 +511,7 @@ function ask(promptStr: string): Promise<string> {
         const rest = chunk.slice(start + 6);
         const end = rest.indexOf("\x1b[201~");
         if (end !== -1) {
-          const normalized = normalizePaste(rest.slice(0, end));
-          echoPaste(normalized);
-          submit(buffer + normalized);
+          insertPaste(normalizePaste(rest.slice(0, end)));
         } else {
           pasteBuffer = rest;
           inPaste = true;
