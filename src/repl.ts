@@ -63,26 +63,25 @@ const BLOCK_FMT: Record<string, Fmt> = {
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: Record<string, Fmt> = {
-  _default:          (m) => `system/${m.subtype}`,
   init:              (m) => `session  ${m.session_id}`,
   task_started:      (m) => `task started  id=${m.task_id}`,
   task_progress:     (m) => `task progress  turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
   task_notification: (m) => `task  ${trunc(String(m.message ?? ""), 70)}`,
+  _default:          (m) => `system/${m.subtype}`,
 };
 
 // Top-level message types (other than system, assistant, user)
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: Record<string, Fmt> = {
-  _default:         (m) => `MSG   ${m.type}`,
-  _empty:           (m) => `[${m.type} — empty]`,
   result:           (m) => `result  stop=${m.stop_reason ?? "?"}`,
   rate_limit_event: (m) => `rate limit  status=${m.status ?? "?"}`,
+  _empty:           (m) => `[${m.type} — empty]`,
+  _default:         (m) => `MSG   ${m.type}`,
 };
 
 // Hook events
 // Engine injects: _event (the hook event name)
 const HOOK_FMT: Record<string, Fmt> = {
-  _default:           (h) => `hook  ${h._event}`,
   PreToolUse:         (h) => `hook pre   ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
   PostToolUse:        (h) => `hook post  ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`,
   PostToolUseFailure: (h) => `hook fail  ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`,
@@ -93,6 +92,7 @@ const HOOK_FMT: Record<string, Fmt> = {
   SubagentStart:      (h) => `hook subagent start  id=${h.agent_id ?? "?"}`,
   SubagentStop:       (h) => `hook subagent stop   id=${h.agent_id ?? "?"}`,
   TaskCompleted:      (h) => `hook task completed  id=${h.task_id ?? "?"}`,
+  _default:           (h) => `hook  ${h._event}`,
 };
 
 // ── Printing engine ───────────────────────────────────────────────────────────
