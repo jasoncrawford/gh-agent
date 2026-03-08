@@ -326,6 +326,8 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
     prompt,
     options: {
       cwd: process.cwd(),
+      systemPrompt: { type: "preset", preset: "claude_code" },
+      settingSources: ["user", "project"],
       permissionMode: PERMISSION_MODE,
       ...(BYPASS ? { allowDangerouslySkipPermissions: true } : {}),
       ...(sessionId ? { resume: sessionId } : {}),
