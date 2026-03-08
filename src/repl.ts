@@ -293,12 +293,30 @@ function ask(promptStr: string): Promise<string> {
       redrawSuffix();
     }
 
+    function moveWordLeft() {
+      let pos = cursor;
+      while (pos > 0 && buffer[pos - 1] === " ") pos--;
+      while (pos > 0 && buffer[pos - 1] !== " ") pos--;
+      moveTo(pos);
+    }
+
+    function moveWordRight() {
+      let pos = cursor;
+      while (pos < buffer.length && buffer[pos] === " ") pos++;
+      while (pos < buffer.length && buffer[pos] !== " ") pos++;
+      moveTo(pos);
+    }
+
     function processTyped(data: string) {
-      // Preserve arrow keys as single placeholder chars before stripping other CSI sequences
-      data = data.replace(/\x1b\[D/g, "\x1e"); // left arrow  → 0x1E
-      data = data.replace(/\x1b\[C/g, "\x1f"); // right arrow → 0x1F
+      // Substitute known sequences with placeholder chars before stripping
+      data = data.replace(/\x1b\[1;3D/g, "\x1c"); // iTerm2 option+left  → 0x1C
+      data = data.replace(/\x1b\[1;3C/g, "\x1d"); // iTerm2 option+right → 0x1D
+      data = data.replace(/\x1b\[D/g,    "\x1e"); // left arrow           → 0x1E
+      data = data.replace(/\x1b\[C/g,    "\x1f"); // right arrow          → 0x1F
       data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ""); // strip remaining CSI
-      data = data.replace(/\x1b./gs, "");                 // strip other escapes
+      data = data.replace(/\x1bb/g,      "\x1c"); // Terminal.app option+left
+      data = data.replace(/\x1bf/g,      "\x1d"); // Terminal.app option+right
+      data = data.replace(/\x1b./gs, "");          // strip remaining escapes
 
       for (const ch of data) {
         const code = ch.charCodeAt(0);
@@ -311,6 +329,8 @@ function ask(promptStr: string): Promise<string> {
         else if (ch === "\x0b")                       { killToEnd(); }           // ^K
         else if (ch === "\x15")                       { killToStart(); }         // ^U
         else if (ch === "\x17")                       { deleteWord(); }          // ^W
+        else if (ch === "\x1c")                       { moveWordLeft(); }        // option+←
+        else if (ch === "\x1d")                       { moveWordRight(); }       // option+→
         else if (ch === "\x1e")                       { moveTo(cursor - 1); }   // ←
         else if (ch === "\x1f")                       { moveTo(cursor + 1); }   // →
         else if (code >= 32)                          { insert(ch); }
