@@ -98,19 +98,49 @@ function mdInline(text: string): string {
   return text;
 }
 
+function renderTable(tableLines: string[]): string {
+  const rows = tableLines.map(line =>
+    line.split("|").slice(1, -1).map(cell => cell.trim())
+  );
+  const isSep = (row: string[]) => row.every(cell => /^[-: ]+$/.test(cell));
+  const dataRows = rows.filter(r => !isSep(r));
+  const colCount = Math.max(...dataRows.map(r => r.length));
+  const widths = Array.from({ length: colCount }, (_, i) =>
+    Math.max(...dataRows.map(r => (r[i] ?? "").length))
+  );
+  const renderRow = (row: string[]) =>
+    "│ " + widths.map((w, i) => mdInline((row[i] ?? "").padEnd(w))).join(" │ ") + " │";
+  const divider = "├─" + widths.map(w => "─".repeat(w)).join("─┼─") + "─┤";
+  const out: string[] = [];
+  for (const row of rows) {
+    if (isSep(row)) { out.push(divider); continue; }
+    out.push(renderRow(row));
+  }
+  return out.join("\n");
+}
+
 function renderMarkdown(text: string): string {
   const lines = text.split("\n");
   const out: string[] = [];
   let inCode = false;
   const codeLines: string[] = [];
+  let tableLines: string[] = [];
+
+  function flushTable() {
+    if (tableLines.length) { out.push(renderTable(tableLines)); tableLines = []; }
+  }
 
   for (const line of lines) {
     if (line.startsWith("```")) {
+      flushTable();
       if (!inCode) { inCode = true; codeLines.length = 0; }
       else         { inCode = false; out.push(codeLines.map(l => "  " + l).join("\n")); }
       continue;
     }
     if (inCode) { codeLines.push(line); continue; }
+
+    if (line.trimStart().startsWith("|")) { tableLines.push(line); continue; }
+    flushTable();
 
     if (/^[-*_]{3,}\s*$/.test(line)) { out.push("─".repeat(W)); continue; }
 
@@ -132,6 +162,7 @@ function renderMarkdown(text: string): string {
     out.push(mdInline(line));
   }
 
+  flushTable();
   return out.join("\n");
 }
 
