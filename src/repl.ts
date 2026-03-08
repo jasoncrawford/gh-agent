@@ -294,7 +294,10 @@ function ask(promptStr: string): Promise<string> {
     }
 
     function processTyped(data: string) {
-      data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ""); // strip CSI sequences
+      // Preserve arrow keys as single placeholder chars before stripping other CSI sequences
+      data = data.replace(/\x1b\[D/g, "\x1e"); // left arrow  → 0x1E
+      data = data.replace(/\x1b\[C/g, "\x1f"); // right arrow → 0x1F
+      data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ""); // strip remaining CSI
       data = data.replace(/\x1b./gs, "");                 // strip other escapes
 
       for (const ch of data) {
@@ -308,6 +311,8 @@ function ask(promptStr: string): Promise<string> {
         else if (ch === "\x0b")                       { killToEnd(); }           // ^K
         else if (ch === "\x15")                       { killToStart(); }         // ^U
         else if (ch === "\x17")                       { deleteWord(); }          // ^W
+        else if (ch === "\x1e")                       { moveTo(cursor - 1); }   // ←
+        else if (ch === "\x1f")                       { moveTo(cursor + 1); }   // →
         else if (code >= 32)                          { insert(ch); }
       }
     }
