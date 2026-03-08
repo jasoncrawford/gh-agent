@@ -176,7 +176,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      if (webhooks && signature) {
+      if (webhooks) {
+        if (!signature) {
+          res.writeHead(401);
+          res.end("Missing signature");
+          return;
+        }
         await webhooks.verifyAndReceive({
           id,
           name: name as Parameters<typeof webhooks.verifyAndReceive>[0]["name"],
