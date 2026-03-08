@@ -36,17 +36,21 @@ function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
     .join(", ");
 }
 
-function fmtDiff(hunks: any[]): string {
-  return hunks.map(hunk => {
-    const header = c.darkGray(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
-    const width = process.stdout.columns ?? 80;
-    const lines = (hunk.lines as string[]).map(line => {
-      if (line.startsWith("+")) return c.bgGreen(line.padEnd(width));
-      if (line.startsWith("-")) return c.bgRed(line.padEnd(width));
-      return c.darkGray(line);
-    });
-    return [header, ...lines].join("\n");
-  }).join("\n");
+function fmtHunk(hunk: any): string {
+  const header = c.darkGray(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
+  const width = process.stdout.columns ?? 80;
+  const lines = (hunk.lines as string[]).map(line => {
+    if (line.startsWith("+")) return c.bgGreen(line.padEnd(width));
+    if (line.startsWith("-")) return c.bgRed(line.padEnd(width));
+    return c.darkGray(line);
+  });
+  return [header, ...lines].join("\n");
+}
+
+function fmtEditResult(b: any) {
+  const patch = b._msg?.tool_use_result?.structuredPatch;
+  if (patch && patch.length > 0) return patch.map(fmtHunk).join("\n");
+  return c.darkGray(`→ ${trunc(toolResultText(b), 100)}`);
 }
 
 function toolResultText(b: any): string {
@@ -200,10 +204,7 @@ const TOOL_CALL_FMT: FmtTable = {
 const TOOL_RESULT_FMT: FmtTable = {
   _default: (b) => c.darkGray(`→ ${trunc(toolResultText(b), 100)}`),
   Read:     (b) => c.darkGray(`→ ${fmtCount(toolResultText(b).split("\n").length, "line")}`),
-  Edit:     (b) => {
-    const patch = b._msg?.tool_use_result?.structuredPatch;
-    return (patch && patch.length > 0) ? fmtDiff(patch) : c.sageGreen(`→ ${trunc(toolResultText(b), 100)}`);
-  },
+  Edit:     (b) => fmtEditResult(b),
   Skill:    (b) => null,
 };
 
