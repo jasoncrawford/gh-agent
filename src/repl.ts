@@ -62,6 +62,13 @@ const c = {
   lavender:  (s: string) => `\x1b[38;5;183m${s}\x1b[0m`,
 };
 
+const s = {
+  bold:      (s: string) => `\x1b[1m${s}\x1b[22m`,
+  dim:       (s: string) => `\x1b[2m${s}\x1b[22m`,
+  italic:    (s: string) => `\x1b[3m${s}\x1b[23m`,
+  underline: (s: string) => `\x1b[4m${s}\x1b[24m`,
+};
+
 // ── FORMATS ───────────────────────────────────────────────────────────────────
 // Edit these to change what gets printed to the console.
 // Each entry is either a single Fmt (same in both modes) or { quiet, verbose }.
