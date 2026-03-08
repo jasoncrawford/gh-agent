@@ -198,7 +198,7 @@ const TOOL_CALL_FMT: FmtTable = {
 
 // Tool success result formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_RESULT_FMT: FmtTable = {
-  _default: (b) => c.sageGreen(`→ ${trunc(toolResultText(b), 100)}`),
+  _default: (b) => c.darkGray(`→ ${trunc(toolResultText(b), 100)}`),
   Read:     (b) => c.darkGray(`→ ${fmtCount(toolResultText(b).split("\n").length, "line")}`),
   Edit:     (b) => {
     const patch = b._msg?.tool_use_result?.structuredPatch;
