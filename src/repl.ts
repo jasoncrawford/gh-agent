@@ -51,7 +51,9 @@ function toolResultText(b: any): string {
 type Fmt = (data: any) => string | null;
 
 // Content blocks within assistant/user messages
+// Engine injects: _role ("assistant" | "user")
 const BLOCK_FMT: Record<string, Fmt> = {
+  _default:    (b) => `[${b._role}/${b.type}]`,
   thinking:    (b) => `\n[thinking]\n${b.thinking ?? ""}\n[/thinking]\n`,
   text:        (b) => String(b.text ?? ""),
   tool_use:    (b) => `>> ${b.name}(${fmtArgs(b.input)})`,
@@ -59,7 +61,9 @@ const BLOCK_FMT: Record<string, Fmt> = {
 };
 
 // system/* message subtypes
+// Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: Record<string, Fmt> = {
+  _default:          (m) => `system/${m.subtype}`,
   init:              (m) => `session  ${m.session_id}`,
   task_started:      (m) => `task started  id=${m.task_id}`,
   task_progress:     (m) => `task progress  turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
@@ -67,13 +71,17 @@ const SYSTEM_FMT: Record<string, Fmt> = {
 };
 
 // Top-level message types (other than system, assistant, user)
+// Engine injects: type is already at m.type
 const MESSAGE_FMT: Record<string, Fmt> = {
+  _default:         (m) => `MSG   ${m.type}`,
   result:           (m) => `result  stop=${m.stop_reason ?? "?"}`,
   rate_limit_event: (m) => `rate limit  status=${m.status ?? "?"}`,
 };
 
 // Hook events
+// Engine injects: _event (the hook event name)
 const HOOK_FMT: Record<string, Fmt> = {
+  _default:           (h) => `hook  ${h._event}`,
   PreToolUse:         (h) => `hook pre   ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
   PostToolUse:        (h) => `hook post  ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`,
   PostToolUseFailure: (h) => `hook fail  ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`,
@@ -93,16 +101,16 @@ function print(line: string) {
 }
 
 function printBlock(b: any, role: "assistant" | "user") {
-  const fmt = BLOCK_FMT[b.type];
-  print(fmt ? (fmt(b) ?? "") : `[${role}/${b.type}]`);
+  const fmt = BLOCK_FMT[b.type] ?? BLOCK_FMT._default;
+  print(fmt({ ...b, _role: role }) ?? "");
 }
 
 function printMessage(msg: unknown) {
   const m = msg as any;
 
   if (m.type === "system") {
-    const fmt = SYSTEM_FMT[m.subtype];
-    print(fmt ? (fmt(m) ?? "") : `system/${m.subtype}`);
+    const fmt = SYSTEM_FMT[m.subtype] ?? SYSTEM_FMT._default;
+    print(fmt(m) ?? "");
     return;
   }
 
@@ -113,13 +121,13 @@ function printMessage(msg: unknown) {
     return;
   }
 
-  const fmt = MESSAGE_FMT[m.type];
-  print(fmt ? (fmt(m) ?? "") : `MSG   ${m.type}`);
+  const fmt = MESSAGE_FMT[m.type] ?? MESSAGE_FMT._default;
+  print(fmt(m) ?? "");
 }
 
 function printHook(event: string, input: unknown) {
-  const fmt = HOOK_FMT[event];
-  print(fmt ? (fmt(input) ?? "") : `hook  ${event}`);
+  const fmt = HOOK_FMT[event] ?? HOOK_FMT._default;
+  print(fmt({ ...(input as any), _event: event }) ?? "");
 }
 
 // ── Hook factory ──────────────────────────────────────────────────────────────
