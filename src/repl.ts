@@ -36,6 +36,12 @@ function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
     .join(", ");
 }
 
+function fmtToolCall(b: any, fmt: string) {
+  fmt = c.sageGreen(`\n${fmt}`);
+  if (b.input?.description) fmt += c.gray(` # ${b.input.description}`);
+  return fmt;
+}
+
 function fmtHunk(hunk: any): string {
   const header = c.darkGray(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
   const width = process.stdout.columns ?? 80;
@@ -190,14 +196,15 @@ const BLOCK_FMT: FmtTable = {
 
 // Tool call formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_CALL_FMT: FmtTable = {
-  Bash:     (b) => c.sageGreen(`\n$ ${trunc(b.input?.command ?? "", 80)}`) + (b.input?.description ? c.gray(` # ${b.input.description}`) : ""),
-  Read:     (b) => c.sageGreen(`\n• Read(${b.input?.file_path ?? "?"})`),
-  Write:    (b) => c.sageGreen(`\n• Write(${b.input?.file_path ?? "?"})`),
-  Edit:     (b) => c.sageGreen(`\n• Edit(${b.input?.file_path ?? "?"})`),
-  Glob:     (b) => c.sageGreen(`\n• Glob(${b.input?.pattern ?? "?"})`),
-  Grep:     (b) => c.sageGreen(`\n• grep ${trunc(b.input?.pattern ?? "?", 30)} ${b.input?.path ?? "."}`),
-  Skill:    (b) => c.sageGreen(`\n• Skill(${b.input?.skill ?? "?"})`),
-  _default: (b) => c.sageGreen(`\n• ${b.name}(${fmtArgs(b.input)})`),
+  Bash:     (b) => fmtToolCall(b, `$ ${trunc(b.input?.command ?? "", 80)}`),
+  Read:     (b) => fmtToolCall(b, `• Read(${b.input?.file_path ?? "?"})`),
+  Write:    (b) => fmtToolCall(b, `• Write(${b.input?.file_path ?? "?"})`),
+  Edit:     (b) => fmtToolCall(b, `• Edit(${b.input?.file_path ?? "?"})`),
+  Glob:     (b) => fmtToolCall(b, `• Glob(${b.input?.pattern ?? "?"})`),
+  Grep:     (b) => fmtToolCall(b, `• grep ${trunc(b.input?.pattern ?? "?", 30)} ${b.input?.path ?? "."}`),
+  Skill:    (b) => fmtToolCall(b, `• Skill(${b.input?.skill ?? "?"})`),
+  Agent:    (b) => fmtToolCall(b, `• ${b.input?.subagent_type ?? "Agent"}(${trunc(b.input?.prompt ?? "", 80)})`),
+  _default: (b) => fmtToolCall(b, `• ${b.name}(${fmtArgs(b.input)})`),
 };
 
 // Tool success result formatters, keyed by tool name. _default is the generic fallback.
