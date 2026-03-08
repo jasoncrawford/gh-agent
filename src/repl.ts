@@ -37,7 +37,7 @@ function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
 }
 
 function fmtToolCall(b: any, fmt: string) {
-  fmt = c.sageGreen(`\n${fmt}`);
+  fmt = c.skyBlue(`\n${fmt}`);
   if (b.input?.description) fmt += c.gray(` # ${b.input.description}`);
   return fmt;
 }
@@ -189,7 +189,7 @@ type FmtTable = Record<string, FmtEntry>;
 // tool_use and tool_result are handled separately via TOOL_CALL_FMT / TOOL_RESULT_FMT.
 const ASSISTANT_BLOCK_FMT: FmtTable = {
   thinking: (b) => c.gray(`\n${renderMarkdown(b.thinking ?? "")}`),
-  text:     (b) => c.skyBlue(`\n${renderMarkdown(b.text ?? "")}`),
+  text:     (b) => c.yellow(`\n${renderMarkdown(b.text ?? "")}`),
   _default: (b) => c.darkGray(`[assistant/${b.type}]`),
 };
 
@@ -249,17 +249,17 @@ const MESSAGE_FMT: FmtTable = {
 // Hook events
 // Engine injects: _event (the hook event name)
 const HOOK_FMT: FmtTable = {
-  PreToolUse:         { verbose: (h) => c.yellow(`hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`) },
-  PostToolUse:        { verbose: (h) => c.yellow(`hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`) },
-  PostToolUseFailure: { verbose: (h) => c.yellow(`hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`) },
-  Notification:       { verbose: (h) => c.yellow(`hook: notif "${trunc(String(h.message ?? ""), 60)}"`) },
-  UserPromptSubmit:   { verbose: (h) => c.yellow(`hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"`) },
-  PermissionRequest:  { verbose: (h) => c.yellow(`hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`) },
-  Stop:               { verbose: (h) => c.yellow(`hook: stop reason=${h.stop_reason ?? "?"}`) },
-  SubagentStart:      { verbose: (h) => c.yellow(`hook: subagent start id=${h.agent_id ?? "?"}`) },
-  SubagentStop:       { verbose: (h) => c.yellow(`hook: subagent stop  id=${h.agent_id ?? "?"}`) },
-  TaskCompleted:      { verbose: (h) => c.yellow(`hook: task completed id=${h.task_id ?? "?"}`) },
-  _default:           { verbose: (h) => c.yellow(`hook: ${h._event}`) },
+  PreToolUse:         { verbose: (h) => c.sageGreen(`hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`) },
+  PostToolUse:        { verbose: (h) => c.sageGreen(`hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`) },
+  PostToolUseFailure: { verbose: (h) => c.sageGreen(`hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`) },
+  Notification:       { verbose: (h) => c.sageGreen(`hook: notif "${trunc(String(h.message ?? ""), 60)}"`) },
+  UserPromptSubmit:   { verbose: (h) => c.sageGreen(`hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"`) },
+  PermissionRequest:  { verbose: (h) => c.sageGreen(`hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`) },
+  Stop:               { verbose: (h) => c.sageGreen(`hook: stop reason=${h.stop_reason ?? "?"}`) },
+  SubagentStart:      { verbose: (h) => c.sageGreen(`hook: subagent start id=${h.agent_id ?? "?"}`) },
+  SubagentStop:       { verbose: (h) => c.sageGreen(`hook: subagent stop  id=${h.agent_id ?? "?"}`) },
+  TaskCompleted:      { verbose: (h) => c.sageGreen(`hook: task completed id=${h.task_id ?? "?"}`) },
+  _default:           { verbose: (h) => c.sageGreen(`hook: ${h._event}`) },
 };
 
 // ── Printing engine ───────────────────────────────────────────────────────────
