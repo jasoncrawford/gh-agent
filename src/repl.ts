@@ -66,6 +66,12 @@ const SYSTEM_FMT: Record<string, Fmt> = {
   task_notification: (m) => `task  ${trunc(String(m.message ?? ""), 70)}`,
 };
 
+// Top-level message types (other than system, assistant, user)
+const MESSAGE_FMT: Record<string, Fmt> = {
+  result:           (m) => `result  stop=${m.stop_reason ?? "?"}`,
+  rate_limit_event: (m) => `rate limit  status=${m.status ?? "?"}`,
+};
+
 // Hook events
 const HOOK_FMT: Record<string, Fmt> = {
   PreToolUse:         (h) => `hook pre   ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
@@ -94,9 +100,6 @@ function printBlock(b: any, role: "assistant" | "user") {
 function printMessage(msg: unknown) {
   const m = msg as any;
 
-  // result is rendered separately in runQuery
-  if ("result" in m) return;
-
   if (m.type === "system") {
     const fmt = SYSTEM_FMT[m.subtype];
     print(fmt ? (fmt(m) ?? "") : `system/${m.subtype}`);
@@ -110,7 +113,8 @@ function printMessage(msg: unknown) {
     return;
   }
 
-  print(`MSG   ${m.type}`);
+  const fmt = MESSAGE_FMT[m.type];
+  print(fmt ? (fmt(m) ?? "") : `MSG   ${m.type}`);
 }
 
 function printHook(event: string, input: unknown) {
@@ -189,10 +193,6 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
     }
 
     printMessage(message);
-
-    if ("result" in m) {
-      print(`\nresult  stop=${m.stop_reason ?? "?"}`);
-    }
   }
 
   return capturedSessionId;
