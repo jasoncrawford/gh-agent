@@ -235,19 +235,77 @@ function ask(promptStr: string): Promise<string> {
       process.exit(0);
     }
 
+    let cursor = 0; // current cursor position within buffer
+
+    // Write suffix from cursor, clear trailing chars, reposition cursor
+    function redrawSuffix() {
+      const rest = buffer.slice(cursor);
+      process.stdout.write(rest + "\x1b[K");
+      if (rest.length) process.stdout.write(`\x1b[${rest.length}D`);
+    }
+
+    function insert(ch: string) {
+      buffer = buffer.slice(0, cursor) + ch + buffer.slice(cursor);
+      cursor++;
+      redrawSuffix();
+    }
+
+    function deleteBack() {
+      if (cursor === 0) return;
+      buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);
+      cursor--;
+      process.stdout.write("\b");
+      redrawSuffix();
+    }
+
+    function moveTo(pos: number) {
+      pos = Math.max(0, Math.min(buffer.length, pos));
+      if (pos === cursor) return;
+      const delta = pos - cursor;
+      process.stdout.write(delta < 0 ? `\x1b[${-delta}D` : `\x1b[${delta}C`);
+      cursor = pos;
+    }
+
+    function killToEnd() {
+      buffer = buffer.slice(0, cursor);
+      process.stdout.write("\x1b[K");
+    }
+
+    function killToStart() {
+      const rest = buffer.slice(cursor);
+      buffer = rest;
+      if (cursor) process.stdout.write(`\x1b[${cursor}D`);
+      cursor = 0;
+      redrawSuffix();
+    }
+
+    function deleteWord() {
+      if (cursor === 0) return;
+      let pos = cursor;
+      while (pos > 0 && buffer[pos - 1] === " ") pos--;
+      while (pos > 0 && buffer[pos - 1] !== " ") pos--;
+      buffer = buffer.slice(0, pos) + buffer.slice(cursor);
+      if (cursor - pos) process.stdout.write(`\x1b[${cursor - pos}D`);
+      cursor = pos;
+      redrawSuffix();
+    }
+
     function processTyped(data: string) {
       data = data.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ""); // strip CSI sequences
       data = data.replace(/\x1b./gs, "");                 // strip other escapes
 
       for (const ch of data) {
         const code = ch.charCodeAt(0);
-        if (ch === "\r" || ch === "\n")            { submit(buffer); return; }
-        else if (ch === "\x7f" || ch === "\x08")   { // backspace
-          if (buffer.length > 0) { buffer = buffer.slice(0, -1); process.stdout.write("\b \b"); }
-        }
-        else if (ch === "\x03") { process.stdout.write("^C"); exit(); } // Ctrl+C
-        else if (ch === "\x04") { if (!buffer) exit(); }                // Ctrl+D on empty
-        else if (code >= 32)    { buffer += ch; process.stdout.write(ch); }
+        if      (ch === "\r" || ch === "\n")          { submit(buffer); return; }
+        else if (ch === "\x7f" || ch === "\x08")      { deleteBack(); }
+        else if (ch === "\x03") { process.stdout.write("^C"); exit(); }
+        else if (ch === "\x04") { if (!buffer) exit(); }
+        else if (ch === "\x01")                       { moveTo(0); }             // ^A
+        else if (ch === "\x05")                       { moveTo(buffer.length); } // ^E
+        else if (ch === "\x0b")                       { killToEnd(); }           // ^K
+        else if (ch === "\x15")                       { killToStart(); }         // ^U
+        else if (ch === "\x17")                       { deleteWord(); }          // ^W
+        else if (code >= 32)                          { insert(ch); }
       }
     }
 
