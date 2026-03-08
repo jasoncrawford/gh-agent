@@ -48,6 +48,19 @@ function toolResultText(b: any): string {
     .join(" ");
 }
 
+// ── Colors ────────────────────────────────────────────────────────────────────
+
+const c = {
+  skyBlue:   (s: string) => `\x1b[38;5;117m${s}\x1b[0m`,
+  gray:      (s: string) => `\x1b[38;5;246m${s}\x1b[0m`,
+  amber:     (s: string) => `\x1b[38;5;214m${s}\x1b[0m`,
+  sageGreen: (s: string) => `\x1b[38;5;150m${s}\x1b[0m`,
+  salmon:    (s: string) => `\x1b[38;5;203m${s}\x1b[0m`,
+  boldRed:   (s: string) => `\x1b[1;31m${s}\x1b[0m`,
+  darkGray:  (s: string) => `\x1b[90m${s}\x1b[0m`,
+  yellow:    (s: string) => `\x1b[38;5;221m${s}\x1b[0m`,
+};
+
 // ── FORMATS ───────────────────────────────────────────────────────────────────
 // Edit these to change what gets printed to the console.
 // Each entry is either a single Fmt (same in both modes) or { quiet, verbose }.
@@ -60,10 +73,12 @@ type FmtTable = Record<string, FmtEntry>;
 // Content blocks within assistant/user messages
 // Engine injects: _role ("assistant" | "user")
 const BLOCK_FMT: FmtTable = {
-  thinking:    (b) => `\nthinking: ${b.thinking ?? ""}`,
-  text:        (b) => `\n${String(b.text ?? "")}`,
-  tool_use:    (b) => `\n>> ${b.name}(${fmtArgs(b.input)})`,
-  tool_result: (b) => (b.is_error ? `!! ` : `<< `) + trunc(toolResultText(b), 100),
+  thinking:    (b) => c.gray(`\nthinking: ${b.thinking ?? ""}`),
+  text:        (b) => c.skyBlue(`\n${String(b.text ?? "")}`),
+  tool_use:    (b) => c.amber(`\n>> ${b.name}(${fmtArgs(b.input)})`),
+  tool_result: (b) => b.is_error
+    ? c.salmon(`!! ${trunc(toolResultText(b), 100)}`)
+    : c.sageGreen(`<< ${trunc(toolResultText(b), 100)}`),
   _default:    (b) => `[${b._role}/${b.type}]`,
 };
 
@@ -81,7 +96,7 @@ const SYSTEM_FMT: FmtTable = {
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: FmtTable = {
   _empty:           (m) => `[${m.type} — empty]`,
-  result:           (m) => `\nresult: ${m.subtype}, ${fmtCount(m.num_turns, 'turn')}, ${m.duration_ms/1000}s, tokens: ${m.usage.input_tokens} in / ${m.usage.output_tokens} out`,
+  result:           (m) => c.darkGray(`\nresult: ${m.subtype}, ${fmtCount(m.num_turns, 'turn')}, ${m.duration_ms/1000}s, tokens: ${m.usage.input_tokens} in / ${m.usage.output_tokens} out`),
   rate_limit_event: { verbose: (m) => `rate limit: status=${m.rate_limit_info?.status ?? "?"}` },
   _default:         (m) => `msg: ${m.type}`,
 };
@@ -94,7 +109,7 @@ const HOOK_FMT: FmtTable = {
   PostToolUseFailure: { verbose: (h) => `hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}` },
   Notification:       { verbose: (h) => `hook: notif "${trunc(String(h.message ?? ""), 60)}"` },
   UserPromptSubmit:   { verbose: (h) => `hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"` },
-  PermissionRequest:  { verbose: (h) => `hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}` },
+  PermissionRequest:  { verbose: (h) => c.yellow(`hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`) },
   Stop:               { verbose: (h) => `hook: stop reason=${h.stop_reason ?? "?"}` },
   SubagentStart:      { verbose: (h) => `hook: subagent start id=${h.agent_id ?? "?"}` },
   SubagentStop:       { verbose: (h) => `hook: subagent stop  id=${h.agent_id ?? "?"}` },
@@ -426,7 +441,7 @@ async function main() {
     try {
       sessionId = await runQuery(input, sessionId);
     } catch (err) {
-      console.error("\nERROR:", err);
+      console.error(c.boldRed(`\nERROR: ${err}`));
       logFull("ERROR", err instanceof Error ? { message: err.message, stack: err.stack } : err);
     }
   }
