@@ -36,6 +36,19 @@ function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
     .join(", ");
 }
 
+function fmtDiff(hunks: any[]): string {
+  return hunks.map(hunk => {
+    const header = c.darkGray(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
+    const width = process.stdout.columns ?? 80;
+    const lines = (hunk.lines as string[]).map(line => {
+      if (line.startsWith("+")) return c.bgGreen(line.padEnd(width));
+      if (line.startsWith("-")) return c.bgRed(line.padEnd(width));
+      return c.darkGray(line);
+    });
+    return [header, ...lines].join("\n");
+  }).join("\n");
+}
+
 function toolResultText(b: any): string {
   const raw = b.content;
   if (typeof raw === "string") return raw;
@@ -60,6 +73,8 @@ const c = {
   darkGray:  (s: string) => `\x1b[90m${s}\x1b[0m`,
   yellow:    (s: string) => `\x1b[38;5;221m${s}\x1b[0m`,
   lavender:  (s: string) => `\x1b[38;5;183m${s}\x1b[0m`,
+  bgGreen:   (s: string) => `\x1b[48;5;22m${s}\x1b[49m`,
+  bgRed:     (s: string) => `\x1b[48;5;52m${s}\x1b[49m`,
 };
 
 const s = {
@@ -152,6 +167,11 @@ const TOOL_CALL_FMT: FmtTable = {
 // Tool success result formatters, keyed by tool name. _default is the generic fallback.
 const TOOL_RESULT_FMT: FmtTable = {
   _default: (b) => c.sageGreen(`→ ${trunc(toolResultText(b), 100)}`),
+  Read:     (b) => c.darkGray(`→ ${fmtCount(toolResultText(b).split("\n").length, "line")}`),
+  Edit:     (b) => {
+    const patch = b._msg?.tool_use_result?.structuredPatch;
+    return (patch && patch.length > 0) ? fmtDiff(patch) : c.sageGreen(`→ ${trunc(toolResultText(b), 100)}`);
+  },
 };
 
 // Tool error result formatters, keyed by tool name. _default is the generic fallback.
@@ -211,7 +231,7 @@ function resolve(table: FmtTable, key: string, data: any): string | null {
 // Maps tool_use_id → tool name so tool_result blocks can look up their tool.
 const toolUseNames = new Map<string, string>();
 
-function printBlock(b: any, role: "assistant" | "user") {
+function printBlock(b: any, role: "assistant" | "user", msg?: any) {
   if (b.type === "tool_use") {
     toolUseNames.set(b.id, b.name);
     print(resolve(TOOL_CALL_FMT, b.name, b));
@@ -219,7 +239,7 @@ function printBlock(b: any, role: "assistant" | "user") {
   }
   if (b.type === "tool_result") {
     const name = toolUseNames.get(b.tool_use_id) ?? "";
-    print(resolve(b.is_error ? TOOL_ERROR_FMT : TOOL_RESULT_FMT, name, b));
+    print(resolve(b.is_error ? TOOL_ERROR_FMT : TOOL_RESULT_FMT, name, { ...b, _msg: msg }));
     return;
   }
   print(resolve(BLOCK_FMT, b.type, { ...b, _role: role }));
@@ -240,7 +260,7 @@ function printMessage(msg: unknown) {
   if (m.type === "assistant" || m.type === "user") {
     const content: any[] = m.message?.content ?? [];
     if (!content.length) { print(resolve(MESSAGE_FMT, "_empty", m)); return; }
-    for (const b of content) printBlock(b, m.type);
+    for (const b of content) printBlock(b, m.type, m);
     return;
   }
 
