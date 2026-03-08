@@ -185,13 +185,20 @@ type Fmt = (data: any) => string | null;
 type FmtEntry = Fmt | { quiet?: Fmt; verbose?: Fmt };
 type FmtTable = Record<string, FmtEntry>;
 
-// Content blocks within assistant/user messages
-// Engine injects: _role ("assistant" | "user")
+// Content blocks within assistant messages.
 // tool_use and tool_result are handled separately via TOOL_CALL_FMT / TOOL_RESULT_FMT.
-const BLOCK_FMT: FmtTable = {
+const ASSISTANT_BLOCK_FMT: FmtTable = {
   thinking: (b) => c.gray(`\n${renderMarkdown(b.thinking ?? "")}`),
   text:     (b) => c.skyBlue(`\n${renderMarkdown(b.text ?? "")}`),
-  _default: (b) => c.darkGray(`[${b._role}/${b.type}]`),
+  _default: (b) => c.darkGray(`[assistant/${b.type}]`),
+};
+
+// Content blocks within user messages.
+const USER_BLOCK_FMT: FmtTable = {
+  text:     (b) => b._isSynthetic
+    ? c.darkGray(`\n${trunc(b.text ?? "", 100)}`)
+    : `\n${b.text ?? ""}`,
+  _default: (b) => c.darkGray(`[user/${b.type}]`),
 };
 
 // Tool call formatters, keyed by tool name. _default is the generic fallback.
@@ -283,7 +290,8 @@ function printBlock(b: any, role: "assistant" | "user", msg?: any) {
     print(resolve(b.is_error ? TOOL_ERROR_FMT : TOOL_RESULT_FMT, name, { ...b, _msg: msg }));
     return;
   }
-  print(resolve(BLOCK_FMT, b.type, { ...b, _role: role }));
+  const blockFmt = role === "assistant" ? ASSISTANT_BLOCK_FMT : USER_BLOCK_FMT;
+  print(resolve(blockFmt, b.type, { ...b, _isSynthetic: msg?.isSynthetic ?? false }));
 }
 
 function printMessage(msg: unknown) {
