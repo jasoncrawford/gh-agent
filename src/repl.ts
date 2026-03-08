@@ -264,8 +264,51 @@ const HOOK_FMT: FmtTable = {
 
 // ── Printing engine ───────────────────────────────────────────────────────────
 
+// Status line — a live-updating line shown at the bottom while the agent works.
+// Each call to print() clears it, logs the line, then redraws it.
+// stopStatus() clears it permanently (call before printing the final result line).
+
+let _statusText = "";
+let _statusActive = false;
+let _statusInterval: ReturnType<typeof setInterval> | null = null;
+
+function _clearStatus() {
+  if (!_statusActive) return;
+  // Cursor is at end of status text (line L+1). Clear L+1, move up, clear L.
+  process.stdout.write("\r\x1b[K\x1b[A\x1b[K");
+  // Cursor is now at start of L.
+}
+
+function _drawStatus() {
+  if (!_statusActive) return;
+  // Cursor is at start of L. Write blank line L, then status on L+1.
+  process.stdout.write("\n\r" + _statusText + "\x1b[K");
+  // Cursor is now at end of status text on L+1.
+}
+
+function startStatus(getText: () => string) {
+  _statusActive = true;
+  _statusText = getText();
+  _drawStatus();
+  _statusInterval = setInterval(() => {
+    _clearStatus();
+    _statusText = getText();
+    _drawStatus();
+  }, 500);
+}
+
+function stopStatus() {
+  if (_statusInterval) { clearInterval(_statusInterval); _statusInterval = null; }
+  _clearStatus();
+  _statusActive = false;
+  _statusText = "";
+}
+
 function print(line: string | null) {
-  if (line !== null) console.log(line);
+  if (line === null) return;
+  _clearStatus();
+  console.log(line);
+  _drawStatus();
 }
 
 function resolve(table: FmtTable, key: string, data: any): string | null {
@@ -369,6 +412,12 @@ const PERMISSION_MODE = BYPASS ? "bypassPermissions" : "acceptEdits";
 async function runQuery(prompt: string, sessionId: string | undefined) {
   logFull("QUERY", { prompt, sessionId });
 
+  const startTime = Date.now();
+  startStatus(() => {
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    return c.darkGray(`Working… ${secs}s`);
+  });
+
   let capturedSessionId = sessionId;
 
   for await (const message of query({
@@ -391,9 +440,14 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
       capturedSessionId = m.session_id;
     }
 
+    // Stop the status line before printing the result so it transitions
+    // cleanly into the permanent summary line.
+    if (m.type === "result") stopStatus();
+
     printMessage(message);
   }
 
+  stopStatus(); // no-op if result message already stopped it
   return capturedSessionId;
 }
 
