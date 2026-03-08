@@ -73,48 +73,45 @@ type FmtTable = Record<string, FmtEntry>;
 // Content blocks within assistant/user messages
 // Engine injects: _role ("assistant" | "user")
 const BLOCK_FMT: FmtTable = {
-  thinking:    (b) => c.gray(`\nthinking: ${b.thinking ?? ""}`),
-  text:        (b) => c.skyBlue(`\n${String(b.text ?? "")}`),
-  tool_use:    (b) => c.amber(`\n>> ${b.name}(${fmtArgs(b.input)})`),
+  thinking:    (b) => c.gray(`\n${b.thinking ?? ""}`),
+  text:        (b) => c.skyBlue(`\n${b.text ?? ""}`),
+  tool_use:    (b) => c.sageGreen(`\n>> ${b.name}(${fmtArgs(b.input)})`),
   tool_result: (b) => b.is_error
     ? c.salmon(`!! ${trunc(toolResultText(b), 100)}`)
     : c.sageGreen(`<< ${trunc(toolResultText(b), 100)}`),
-  _default:    (b) => `[${b._role}/${b.type}]`,
+  _default:    (b) => c.darkGray(`[${b._role}/${b.type}]`),
 };
 
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
 const SYSTEM_FMT: FmtTable = {
-  init:              { verbose: (m) => `init: ${m.session_id}` },
-  task_started:      (m) => `task started: id=${m.task_id}`,
-  task_progress:     (m) => `task progress: turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
-  task_notification: (m) => `task notif: ${trunc(String(m.message ?? ""), 70)}`,
-  _default:          (m) => `system/${m.subtype}`,
+  init:              { verbose: (m) => c.darkGray(`init: ${m.session_id}`) },
+  _default:          (m) => c.darkGray(`system/${m.subtype}`),
 };
 
 // Top-level message types (other than system, assistant, user)
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: FmtTable = {
-  _empty:           (m) => `[${m.type} — empty]`,
-  result:           (m) => c.darkGray(`\nresult: ${m.subtype}, ${fmtCount(m.num_turns, 'turn')}, ${m.duration_ms/1000}s, tokens: ${m.usage.input_tokens} in / ${m.usage.output_tokens} out`),
-  rate_limit_event: { verbose: (m) => `rate limit: status=${m.rate_limit_info?.status ?? "?"}` },
-  _default:         (m) => `msg: ${m.type}`,
+  _empty:           (m) => c.darkGray(`[${m.type} — empty]`),
+  result:           (m) => c.darkGray(`\n${fmtCount(m.num_turns, 'turn')}, ${m.duration_ms/1000}s, tokens: ${m.usage.input_tokens} in / ${m.usage.output_tokens} out`),
+  rate_limit_event: { verbose: (m) => c.darkGray(`rate limit: status=${m.rate_limit_info?.status ?? "?"}`) },
+  _default:         (m) => c.darkGray(`msg: ${m.type}`),
 };
 
 // Hook events
 // Engine injects: _event (the hook event name)
 const HOOK_FMT: FmtTable = {
-  PreToolUse:         { verbose: (h) => `hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})` },
-  PostToolUse:        { verbose: (h) => `hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})` },
-  PostToolUseFailure: { verbose: (h) => `hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}` },
-  Notification:       { verbose: (h) => `hook: notif "${trunc(String(h.message ?? ""), 60)}"` },
-  UserPromptSubmit:   { verbose: (h) => `hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"` },
+  PreToolUse:         { verbose: (h) => c.yellow(`hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`) },
+  PostToolUse:        { verbose: (h) => c.yellow(`hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`) },
+  PostToolUseFailure: { verbose: (h) => c.yellow(`hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`) },
+  Notification:       { verbose: (h) => c.yellow(`hook: notif "${trunc(String(h.message ?? ""), 60)}"`) },
+  UserPromptSubmit:   { verbose: (h) => c.yellow(`hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"`) },
   PermissionRequest:  { verbose: (h) => c.yellow(`hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`) },
-  Stop:               { verbose: (h) => `hook: stop reason=${h.stop_reason ?? "?"}` },
-  SubagentStart:      { verbose: (h) => `hook: subagent start id=${h.agent_id ?? "?"}` },
-  SubagentStop:       { verbose: (h) => `hook: subagent stop  id=${h.agent_id ?? "?"}` },
-  TaskCompleted:      { verbose: (h) => `hook: task completed id=${h.task_id ?? "?"}` },
-  _default:           { verbose: (h) => `hook: ${h._event}` },
+  Stop:               { verbose: (h) => c.yellow(`hook: stop reason=${h.stop_reason ?? "?"}`) },
+  SubagentStart:      { verbose: (h) => c.yellow(`hook: subagent start id=${h.agent_id ?? "?"}`) },
+  SubagentStop:       { verbose: (h) => c.yellow(`hook: subagent stop  id=${h.agent_id ?? "?"}`) },
+  TaskCompleted:      { verbose: (h) => c.yellow(`hook: task completed id=${h.task_id ?? "?"}`) },
+  _default:           { verbose: (h) => c.yellow(`hook: ${h._event}`) },
 };
 
 // ── Printing engine ───────────────────────────────────────────────────────────
