@@ -45,16 +45,18 @@ function toolResultText(b: any): string {
 
 // ── FORMATS ───────────────────────────────────────────────────────────────────
 // Edit these to change what gets printed to the console.
-// Each function receives the raw SDK data and returns a string to print.
-// Return null to suppress output for that type.
+// Each entry is either a single Fmt (same in both modes) or { quiet, verbose }.
+// Return null to suppress output entirely for that type.
 
 type Fmt = (data: any) => string | null;
+type FmtEntry = Fmt | { quiet?: Fmt; verbose?: Fmt };
+type FmtTable = Record<string, FmtEntry>;
 
 // Content blocks within assistant/user messages
 // Engine injects: _role ("assistant" | "user")
-const BLOCK_FMT: Record<string, Fmt> = {
+const BLOCK_FMT: FmtTable = {
   _default:    (b) => `[${b._role}/${b.type}]`,
-  thinking:    (b) => `think: ${b.thinking ?? ""}`,
+  thinking:    { verbose: (b) => `think: ${b.thinking ?? ""}` },
   text:        (b) => String(b.text ?? ""),
   tool_use:    (b) => `>> ${b.name}(${fmtArgs(b.input)})`,
   tool_result: (b) => (b.is_error ? `!! ` : `<< `) + trunc(toolResultText(b), 100),
@@ -62,73 +64,77 @@ const BLOCK_FMT: Record<string, Fmt> = {
 
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
-const SYSTEM_FMT: Record<string, Fmt> = {
+const SYSTEM_FMT: FmtTable = {
+  _default:          { verbose: (m) => `system/${m.subtype}` },
   init:              (m) => `init: ${m.session_id}`,
-  task_started:      (m) => `task started:  id=${m.task_id}`,
-  task_progress:     (m) => `task progress:  turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}`,
-  task_notification: (m) => `task notif: ${trunc(String(m.message ?? ""), 70)}`,
-  _default:          (m) => `system/${m.subtype}`,
+  task_started:      { verbose: (m) => `task started: id=${m.task_id}` },
+  task_progress:     { verbose: (m) => `task progress: turns=${m.turns ?? "?"} tools=${m.tool_use_count ?? "?"}` },
+  task_notification: { verbose: (m) => `task notif: ${trunc(String(m.message ?? ""), 70)}` },
 };
 
 // Top-level message types (other than system, assistant, user)
 // Engine injects: type is already at m.type
-const MESSAGE_FMT: Record<string, Fmt> = {
-  result:           (m) => `result: stop=${m.stop_reason ?? "?"}`,
-  rate_limit_event: (m) => `rate limit: status=${m.rate_limit_info.status ?? "?"}`,
+const MESSAGE_FMT: FmtTable = {
+  _default:         { verbose: (m) => `msg: ${m.type}` },
   _empty:           (m) => `[${m.type} — empty]`,
-  _default:         (m) => `msg: ${m.type}`,
+  result:           (m) => `result: stop=${m.stop_reason ?? "?"}`,
+  rate_limit_event: { verbose: (m) => `rate limit: status=${m.rate_limit_info?.status ?? "?"}` },
 };
 
 // Hook events
 // Engine injects: _event (the hook event name)
-const HOOK_FMT: Record<string, Fmt> = {
-  PreToolUse:         (h) => `hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`,
-  PostToolUse:        (h) => `hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`,
+const HOOK_FMT: FmtTable = {
+  _default:           { verbose: (h) => `hook: ${h._event}` },
+  PreToolUse:         { verbose: (h) => `hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})` },
+  PostToolUse:        { verbose: (h) => `hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})` },
   PostToolUseFailure: (h) => `hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`,
-  Notification:       (h) => `hook: notif "${trunc(String(h.message ?? ""), 60)}"`,
-  UserPromptSubmit:   (h) => `hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"`,
+  Notification:       { verbose: (h) => `hook: notif "${trunc(String(h.message ?? ""), 60)}"` },
+  UserPromptSubmit:   { verbose: (h) => `hook: user prompt "${trunc(String(h.prompt ?? ""), 60)}"` },
   PermissionRequest:  (h) => `hook: permission ${h.tool_name ?? h.tool ?? "?"}  → ${h.status ?? h.decision ?? "?"}`,
-  Stop:               (h) => `hook: stop reason=${h.stop_reason ?? "?"}`,
-  SubagentStart:      (h) => `hook: subagent start id=${h.agent_id ?? "?"}`,
-  SubagentStop:       (h) => `hook: subagent stop  id=${h.agent_id ?? "?"}`,
-  TaskCompleted:      (h) => `hook: task completed id=${h.task_id ?? "?"}`,
-  _default:           (h) => `hook: ${h._event}`,
+  Stop:               { verbose: (h) => `hook: stop reason=${h.stop_reason ?? "?"}` },
+  SubagentStart:      { verbose: (h) => `hook: subagent start id=${h.agent_id ?? "?"}` },
+  SubagentStop:       { verbose: (h) => `hook: subagent stop  id=${h.agent_id ?? "?"}` },
+  TaskCompleted:      { verbose: (h) => `hook: task completed id=${h.task_id ?? "?"}` },
 };
 
 // ── Printing engine ───────────────────────────────────────────────────────────
 
-function print(line: string) {
-  console.log(line);
+function print(line: string | null) {
+  if (line !== null) console.log(line);
+}
+
+function resolve(table: FmtTable, key: string, data: any): string | null {
+  const entry = table[key] ?? table._default;
+  if (!entry) return null;
+  if (typeof entry === "function") return entry(data);
+  const fmt = VERBOSE ? entry.verbose : entry.quiet;
+  return fmt ? fmt(data) : null;
 }
 
 function printBlock(b: any, role: "assistant" | "user") {
-  const fmt = BLOCK_FMT[b.type] ?? BLOCK_FMT._default;
-  print(fmt({ ...b, _role: role }) ?? "");
+  print(resolve(BLOCK_FMT, b.type, { ...b, _role: role }));
 }
 
 function printMessage(msg: unknown) {
   const m = msg as any;
 
   if (m.type === "system") {
-    const fmt = SYSTEM_FMT[m.subtype] ?? SYSTEM_FMT._default;
-    print(fmt(m) ?? "");
+    print(resolve(SYSTEM_FMT, m.subtype, m));
     return;
   }
 
   if (m.type === "assistant" || m.type === "user") {
     const content: any[] = m.message?.content ?? [];
-    if (!content.length) { print((MESSAGE_FMT._empty ?? MESSAGE_FMT._default)(m) ?? ""); return; }
+    if (!content.length) { print(resolve(MESSAGE_FMT, "_empty", m)); return; }
     for (const b of content) printBlock(b, m.type);
     return;
   }
 
-  const fmt = MESSAGE_FMT[m.type] ?? MESSAGE_FMT._default;
-  print(fmt(m) ?? "");
+  print(resolve(MESSAGE_FMT, m.type, m));
 }
 
 function printHook(event: string, input: unknown) {
-  const fmt = HOOK_FMT[event] ?? HOOK_FMT._default;
-  print(fmt({ ...(input as any), _event: event }) ?? "");
+  print(resolve(HOOK_FMT, event, { ...(input as any), _event: event }));
 }
 
 // ── Hook factory ──────────────────────────────────────────────────────────────
@@ -172,6 +178,7 @@ const hooks = Object.fromEntries(
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BYPASS = process.argv.includes("--dangerously-skip-permissions");
+const VERBOSE = process.argv.includes("--verbose");
 const PERMISSION_MODE = BYPASS ? "bypassPermissions" : "acceptEdits";
 
 // ── REPL ──────────────────────────────────────────────────────────────────────
@@ -395,7 +402,7 @@ async function main() {
 
   print(hr("═"));
   print("  Claude Agent SDK REPL");
-  print(`  Permissions: ${PERMISSION_MODE}. Full details logged to ${LOG_FILE}.`);
+  print(`  Permissions: ${PERMISSION_MODE} | Output: ${VERBOSE ? "verbose" : "quiet"} | Log: ${LOG_FILE}`);
   print(`  Type 'exit' to quit, 'reset' to start a new session.`);
   print(hr("═"));
 
