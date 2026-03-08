@@ -74,6 +74,7 @@ const SYSTEM_FMT: Record<string, Fmt> = {
 // Engine injects: type is already at m.type
 const MESSAGE_FMT: Record<string, Fmt> = {
   _default:         (m) => `MSG   ${m.type}`,
+  _empty:           (m) => `[${m.type} — empty]`,
   result:           (m) => `result  stop=${m.stop_reason ?? "?"}`,
   rate_limit_event: (m) => `rate limit  status=${m.status ?? "?"}`,
 };
@@ -116,7 +117,7 @@ function printMessage(msg: unknown) {
 
   if (m.type === "assistant" || m.type === "user") {
     const content: any[] = m.message?.content ?? [];
-    if (!content.length) { print(`[${m.type} — empty]`); return; }
+    if (!content.length) { print((MESSAGE_FMT._empty ?? MESSAGE_FMT._default)(m) ?? ""); return; }
     for (const b of content) printBlock(b, m.type);
     return;
   }
