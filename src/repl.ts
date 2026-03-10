@@ -1,11 +1,12 @@
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { query, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
 // ── Log file ──────────────────────────────────────────────────────────────────
 
 const LOG_FILE = "repl.log";
 
-function logFull(label: string, data: unknown) {
+export function logFull(label: string, data: unknown) {
   const entry =
     `\n${"=".repeat(70)}\n` +
     `${new Date().toISOString()}  ${label}\n` +
@@ -20,17 +21,17 @@ function logFull(label: string, data: unknown) {
 const W = 70;
 const hr = (ch = "─") => ch.repeat(W);
 
-function trunc(s: string, n = 80) {
+export function trunc(s: string, n = 80) {
   s = s.replace(/\s+/g, " ").trim();
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-function fmtCount(count: number, singular_noun: string, plural_noun?: string) {
+export function fmtCount(count: number, singular_noun: string, plural_noun?: string) {
   const noun = (count === 1) ? singular_noun : (plural_noun ?? `${singular_noun}s`)
   return `${count} ${noun}`
 }
 
-function fmtStats(secs: number, turns?: number, outputTokens?: number, inputTokens?: number): string {
+export function fmtStats(secs: number, turns?: number, outputTokens?: number, inputTokens?: number): string {
   const parts: string[] = [`${secs}s`];
   if (turns) parts.push(fmtCount(turns, "turn"));
   if (outputTokens) {
@@ -40,19 +41,19 @@ function fmtStats(secs: number, turns?: number, outputTokens?: number, inputToke
   return parts.join(", ");
 }
 
-function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
+export function fmtArgs(input: Record<string, unknown>, maxVal = 50): string {
   return Object.entries(input ?? {})
     .map(([k, v]) => `${k}=${trunc(String(v), maxVal)}`)
     .join(", ");
 }
 
-function fmtToolCall(b: any, fmt: string) {
+export function fmtToolCall(b: any, fmt: string) {
   fmt = c.skyBlue(`\n${fmt}`);
   if (b.input?.description) fmt += c.gray(` # ${b.input.description}`);
   return fmt;
 }
 
-function fmtHunk(hunk: any): string {
+export function fmtHunk(hunk: any): string {
   const header = c.darkGray(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
   const width = process.stdout.columns ?? 80;
   const lines = (hunk.lines as string[]).map(line => {
@@ -63,13 +64,13 @@ function fmtHunk(hunk: any): string {
   return [header, ...lines].join("\n");
 }
 
-function fmtEditResult(b: any) {
+export function fmtEditResult(b: any) {
   const patch = b._msg?.tool_use_result?.structuredPatch;
   if (patch && patch.length > 0) return patch.map(fmtHunk).join("\n");
   return c.darkGray(`→ ${trunc(toolResultText(b), 100)}`);
 }
 
-function toolResultText(b: any): string {
+export function toolResultText(b: any): string {
   const raw = b.content;
   if (typeof raw === "string") return raw;
   return (Array.isArray(raw) ? raw : [raw])
@@ -83,7 +84,7 @@ function toolResultText(b: any): string {
 
 // ── Colors ────────────────────────────────────────────────────────────────────
 
-const c = {
+export const c = {
   skyBlue:   (s: string) => `\x1b[38;5;117m${s}\x1b[0m`,
   gray:      (s: string) => `\x1b[38;5;246m${s}\x1b[0m`,
   amber:     (s: string) => `\x1b[38;5;214m${s}\x1b[0m`,
@@ -97,7 +98,7 @@ const c = {
   bgRed:     (s: string) => `\x1b[48;5;52m${s}\x1b[49m`,
 };
 
-const s = {
+export const s = {
   bold:          (s: string) => `\x1b[1m${s}\x1b[22m`,
   dim:           (s: string) => `\x1b[2m${s}\x1b[22m`,
   italic:        (s: string) => `\x1b[3m${s}\x1b[23m`,
@@ -109,7 +110,7 @@ const s = {
 // Handles the subset of Markdown Claude commonly produces.
 // Uses only targeted-reset style helpers (s.*) so the caller's color is preserved.
 
-function mdInline(text: string): string {
+export function mdInline(text: string): string {
   text = text.replace(/\*\*(.+?)\*\*/gs,  (_, t) => s.bold(t));
   text = text.replace(/__(.+?)__/gs,      (_, t) => s.bold(t));
   // Note: strikethrough and italic are left as raw Markdown (~~text~~, *text*)
@@ -118,7 +119,7 @@ function mdInline(text: string): string {
   return text;
 }
 
-function renderTable(tableLines: string[]): string {
+export function renderTable(tableLines: string[]): string {
   const rows = tableLines.map(line =>
     line.split("|").slice(1, -1).map(cell => cell.trim())
   );
@@ -139,7 +140,7 @@ function renderTable(tableLines: string[]): string {
   return out.join("\n");
 }
 
-function renderMarkdown(text: string): string {
+export function renderMarkdown(text: string): string {
   const lines = text.split("\n");
   const out: string[] = [];
   let inCode = false;
@@ -182,6 +183,7 @@ function renderMarkdown(text: string): string {
     out.push(mdInline(line));
   }
 
+  if (inCode && codeLines.length) out.push(codeLines.map(l => "  " + l).join("\n"));
   flushTable();
   return out.join("\n");
 }
@@ -191,20 +193,20 @@ function renderMarkdown(text: string): string {
 // Each entry is either a single Fmt (same in both modes) or { quiet, verbose }.
 // Return null to suppress output entirely for that type.
 
-type Fmt = (data: any) => string | null;
-type FmtEntry = Fmt | { quiet?: Fmt; verbose?: Fmt };
-type FmtTable = Record<string, FmtEntry>;
+export type Fmt = (data: any) => string | null;
+export type FmtEntry = Fmt | { quiet?: Fmt; verbose?: Fmt };
+export type FmtTable = Record<string, FmtEntry>;
 
 // Content blocks within assistant messages.
 // tool_use and tool_result are handled separately via TOOL_CALL_FMT / TOOL_RESULT_FMT.
-const ASSISTANT_BLOCK_FMT: FmtTable = {
+export const ASSISTANT_BLOCK_FMT: FmtTable = {
   thinking: (b) => c.gray(`\n${renderMarkdown(b.thinking ?? "")}`),
   text:     (b) => c.yellow(`\n${renderMarkdown(b.text ?? "")}`),
   _default: (b) => c.darkGray(`[assistant/${b.type}]`),
 };
 
 // Content blocks within user messages.
-const USER_BLOCK_FMT: FmtTable = {
+export const USER_BLOCK_FMT: FmtTable = {
   text:     (b) => b._isSynthetic
     ? c.darkGray(`\n${trunc(b.text ?? "", 100)}`)
     : `\n${b.text ?? ""}`,
@@ -212,7 +214,7 @@ const USER_BLOCK_FMT: FmtTable = {
 };
 
 // Tool call formatters, keyed by tool name. _default is the generic fallback.
-const TOOL_CALL_FMT: FmtTable = {
+export const TOOL_CALL_FMT: FmtTable = {
   Bash:     (b) => fmtToolCall(b, `$ ${trunc(b.input?.command ?? "", 80)}`),
   Read:     (b) => fmtToolCall(b, `• Read(${b.input?.file_path ?? "?"})`),
   Write:    (b) => fmtToolCall(b, `• Write(${b.input?.file_path ?? "?"})`),
@@ -225,7 +227,7 @@ const TOOL_CALL_FMT: FmtTable = {
 };
 
 // Tool success result formatters, keyed by tool name. _default is the generic fallback.
-const TOOL_RESULT_FMT: FmtTable = {
+export const TOOL_RESULT_FMT: FmtTable = {
   _default: (b) => c.darkGray(`→ ${trunc(toolResultText(b), 100)}`),
   Read:     (b) => c.darkGray(`→ ${fmtCount(toolResultText(b).split("\n").length, "line")}`),
   Edit:     (b) => fmtEditResult(b),
@@ -233,13 +235,13 @@ const TOOL_RESULT_FMT: FmtTable = {
 };
 
 // Tool error result formatters, keyed by tool name. _default is the generic fallback.
-const TOOL_ERROR_FMT: FmtTable = {
+export const TOOL_ERROR_FMT: FmtTable = {
   _default: (b) => c.salmon(`! ${trunc(toolResultText(b), 100)}`),
 };
 
 // system/* message subtypes
 // Engine injects: subtype is already at m.subtype
-const SYSTEM_FMT: FmtTable = {
+export const SYSTEM_FMT: FmtTable = {
   init:              { verbose: (m) => c.darkGray(`session: ${m.session_id}`) },
   task_started:      (m) => c.lavender(`  ▶ agent started: ${m.description}`),
   task_progress:     (m) => c.lavender(`  • ${m.description}`),
@@ -249,7 +251,7 @@ const SYSTEM_FMT: FmtTable = {
 
 // Top-level message types (other than system, assistant, user)
 // Engine injects: type is already at m.type
-const MESSAGE_FMT: FmtTable = {
+export const MESSAGE_FMT: FmtTable = {
   _empty:           (m) => c.darkGray(`[${m.type} — empty]`),
   result:           (m) => c.darkGray(`\n${fmtStats(Math.round(m.duration_ms / 1000), m.num_turns, m.usage.output_tokens, m.usage.input_tokens)}`),
   rate_limit_event: { verbose: (m) => c.darkGray(`rate limit: status=${m.rate_limit_info?.status ?? "?"}`) },
@@ -258,7 +260,7 @@ const MESSAGE_FMT: FmtTable = {
 
 // Hook events
 // Engine injects: _event (the hook event name)
-const HOOK_FMT: FmtTable = {
+export const HOOK_FMT: FmtTable = {
   PreToolUse:         { verbose: (h) => c.sageGreen(`hook: pre-tool  ${h.tool_name}(${fmtArgs(h.tool_input ?? {}, 30)})`) },
   PostToolUse:        { verbose: (h) => c.sageGreen(`hook: post-tool ${h.tool_name}  (${h.tool_error == null ? "ok" : "error"})`) },
   PostToolUseFailure: { verbose: (h) => c.sageGreen(`hook: tool fail ${h.tool_name}  ${trunc(String(h.tool_error ?? ""), 50)}`) },
@@ -279,7 +281,7 @@ const HOOK_FMT: FmtTable = {
 // stopStatus() clears it permanently (call before printing the final result line).
 
 let _statusText = "";
-let _statusActive = false;
+export let _statusActive = false;
 let _statusInterval: ReturnType<typeof setInterval> | null = null;
 
 function _clearStatus() {
@@ -296,7 +298,7 @@ function _drawStatus() {
   // Cursor is now at end of status text on L+1.
 }
 
-function startStatus(getText: () => string) {
+export function startStatus(getText: () => string) {
   _statusActive = true;
   _statusText = getText();
   _drawStatus();
@@ -307,21 +309,21 @@ function startStatus(getText: () => string) {
   }, 500);
 }
 
-function stopStatus() {
+export function stopStatus() {
   if (_statusInterval) { clearInterval(_statusInterval); _statusInterval = null; }
   _clearStatus();
   _statusActive = false;
   _statusText = "";
 }
 
-function print(line: string | null) {
+export function print(line: string | null) {
   if (line === null) return;
   _clearStatus();
   console.log(line);
   _drawStatus();
 }
 
-function resolve(table: FmtTable, key: string, data: any): string | null {
+export function resolve(table: FmtTable, key: string, data: any): string | null {
   const entry = table[key] ?? table._default;
   if (!entry) return null;
   if (typeof entry === "function") return entry(data);
@@ -330,9 +332,9 @@ function resolve(table: FmtTable, key: string, data: any): string | null {
 }
 
 // Maps tool_use_id → tool name so tool_result blocks can look up their tool.
-const toolUseNames = new Map<string, string>();
+export const toolUseNames = new Map<string, string>();
 
-function printBlock(b: any, role: "assistant" | "user", msg?: any) {
+export function printBlock(b: any, role: "assistant" | "user", msg?: any) {
   if (b.type === "tool_use") {
     toolUseNames.set(b.id, b.name);
     print(resolve(TOOL_CALL_FMT, b.name, b));
@@ -347,7 +349,7 @@ function printBlock(b: any, role: "assistant" | "user", msg?: any) {
   print(resolve(blockFmt, b.type, { ...b, _isSynthetic: msg?.isSynthetic ?? false }));
 }
 
-function printMessage(msg: unknown) {
+export function printMessage(msg: unknown) {
   const m = msg as any;
 
   // Suppress messages from subagents (they have a non-null parent_tool_use_id).
@@ -369,7 +371,7 @@ function printMessage(msg: unknown) {
   print(resolve(MESSAGE_FMT, m.type, m));
 }
 
-function printHook(event: string, input: unknown) {
+export function printHook(event: string, input: unknown) {
   print(resolve(HOOK_FMT, event, { ...(input as any), _event: event }));
 }
 
@@ -414,12 +416,13 @@ const hooks = Object.fromEntries(
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BYPASS = process.argv.includes("--dangerously-skip-permissions");
-const VERBOSE = process.argv.includes("--verbose");
+export let VERBOSE = process.argv.includes("--verbose");
+export function setVerbose(v: boolean) { VERBOSE = v; }
 const PERMISSION_MODE = BYPASS ? "bypassPermissions" : "acceptEdits";
 
 // ── REPL ──────────────────────────────────────────────────────────────────────
 
-async function runQuery(prompt: string, sessionId: string | undefined) {
+export async function runQuery(prompt: string, sessionId: string | undefined) {
   logFull("QUERY", { prompt, sessionId });
 
   const startTime = Date.now();
@@ -486,7 +489,7 @@ async function runQuery(prompt: string, sessionId: string | undefined) {
 // (\x1b[200~ ... \x1b[201~), letting us collect it as a single input
 // rather than having each newline submit a separate prompt.
 
-function ask(promptStr: string): Promise<string> {
+export function ask(promptStr: string): Promise<string> {
   return new Promise((resolve) => {
     let buffer = "";
     let pasteBuffer = "";
@@ -695,4 +698,4 @@ async function main() {
   }
 }
 
-main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) { main(); }
