@@ -1,0 +1,1 @@
+# gh-agent has no extra firewall domains
