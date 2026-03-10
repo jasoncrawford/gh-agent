@@ -1,8 +1,10 @@
 {
-  "name": "github-webhook-listener",
+  "name": "gh-agent",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "bin": {
+    "gh-agent": "bin/gh-agent.cjs"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
@@ -11,11 +13,11 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.71",
     "@octokit/webhooks": "^13.0.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "tsx": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }
 }
