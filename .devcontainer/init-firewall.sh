@@ -112,6 +112,7 @@ if [ -z "$HOST_IP" ]; then
     exit 1
 fi
 
+# shellcheck disable=SC2001  # sed regex uses anchors not supported by ${//}
 HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\.[0-9]*$/.0\/24/")
 echo "Host network detected as: $HOST_NETWORK"
 

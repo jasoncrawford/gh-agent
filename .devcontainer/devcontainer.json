@@ -61,7 +61,7 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postCreateCommand": "claude plugin install superpowers@claude-plugins-official",
-  "postStartCommand": "cp -n /home/node/.claude-host/.claude.json /home/node/.claude/.claude.json 2>/dev/null; sudo /usr/local/bin/init-firewall.sh",
+  "postCreateCommand": "/usr/local/bin/post-create.sh",
+  "postStartCommand": "/usr/local/bin/post-start.sh",
   "waitFor": "postStartCommand"
 }

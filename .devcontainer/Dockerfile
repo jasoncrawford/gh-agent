@@ -6,6 +6,7 @@ ENV TZ="$TZ"
 ARG CLAUDE_CODE_CHANNEL=latest
 
 # Install basic development tools and iptables/ipset
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less \
   git \
@@ -18,7 +19,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gnupg2 \
   gh \
   iptables \
-  ip6tables \
   ipset \
   iproute2 \
   dnsutils \
@@ -43,12 +43,13 @@ RUN mkdir /commandhistory \
 ENV DEVCONTAINER=true
 
 # Create workspace and config directories and set permissions
-RUN mkdir -p /workspace /home/node/.claude && \
+RUN mkdir -p /workspace /home/node/.claude/plugins && \
   chown -R node:node /workspace /home/node/.claude
 
 WORKDIR /workspace
 
 ARG GIT_DELTA_VERSION=0.18.2
+# hadolint ignore=DL3047
 RUN ARCH=$(dpkg --print-architecture) && \
   wget "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
@@ -70,6 +71,7 @@ ENV VISUAL=nano
 
 # Default powerline10k theme
 ARG ZSH_IN_DOCKER_VERSION=1.2.0
+# hadolint ignore=DL3047,DL4001
 RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v${ZSH_IN_DOCKER_VERSION}/zsh-in-docker.sh)" -- \
   -p git \
   -p fzf \
@@ -79,12 +81,14 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
   -x
 
 # Install Claude Code (native installer, auto-updates at runtime)
+# hadolint ignore=DL4006,DL4001
 RUN curl -fsSL https://claude.ai/install.sh | bash -s ${CLAUDE_CODE_CHANNEL}
 
-# Copy and set up firewall script
-COPY init-firewall.sh /usr/local/bin/
+# Copy and set up scripts
+COPY init-firewall.sh post-create.sh post-start.sh /usr/local/bin/
 USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh && \
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/post-create.sh /usr/local/bin/post-start.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
-  chmod 0440 /etc/sudoers.d/node-firewall
+  chmod 0440 /etc/sudoers.d/node-firewall && \
+  chown -R node:node /home/node/.claude
 USER node
