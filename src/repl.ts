@@ -413,6 +413,89 @@ const hooks = Object.fromEntries(
   ])
 ) as Record<HookEvent, [{ matcher: string; hooks: [HookCallback] }]>;
 
+// ── Slash commands ────────────────────────────────────────────────────────────
+
+export type SlashCommandResult =
+  | { type: "exit" }
+  | { type: "clear" }
+  | { type: "unknown_command"; command: string };
+
+/**
+ * Parse a slash command from raw user input.
+ * Returns null if the input is not a slash command.
+ */
+export function parseSlashCommand(input: string): SlashCommandResult | null {
+  if (!input.startsWith("/")) return null;
+  const command = input.slice(1).split(/\s+/)[0];
+  if (!command) return null;
+  if (command === "exit") return { type: "exit" };
+  if (command === "clear") return { type: "clear" };
+  return { type: "unknown_command", command };
+}
+
+/**
+ * Convert a slash command name to its file path under ~/.claude/commands/.
+ * Colons become path separators: "foo:bar" → ~/.claude/commands/foo/bar.md
+ */
+export function resolveCommandFilePath(command: string): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const rel = command.replace(/:/g, "/");
+  return `${home}/.claude/commands/${rel}.md`;
+}
+
+/**
+ * Load a custom slash command from disk, returning the file content as the
+ * query prompt, or null if the file does not exist.
+ * The readFile parameter is injectable for testing.
+ */
+export function loadCommandFile(
+  command: string,
+  readFile: (path: string) => string | null = defaultReadFile,
+): string | null {
+  const filePath = resolveCommandFilePath(command);
+  return readFile(filePath);
+}
+
+function defaultReadFile(path: string): string | null {
+  try {
+    return fs.readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+export type DispatchResult =
+  | { type: "skip" }
+  | { type: "exit" }
+  | { type: "clear" }
+  | { type: "query"; prompt: string }
+  | { type: "unknown_command"; command: string };
+
+/**
+ * Dispatch user input to the appropriate REPL action.
+ * readFile is injectable for testing.
+ */
+export async function dispatchInput(
+  input: string,
+  readFile: (path: string) => string | null = defaultReadFile,
+): Promise<DispatchResult> {
+  if (!input) return { type: "skip" };
+
+  const slash = parseSlashCommand(input);
+  if (slash) {
+    if (slash.type === "exit" || slash.type === "clear") return slash;
+    // unknown_command: look up file
+    const { command } = slash;
+    const content = loadCommandFile(command, readFile);
+    if (content === null) return { type: "unknown_command", command };
+    const args = input.slice(1 + command.length).trim();
+    const prompt = args ? `${content}\n${args}` : content;
+    return { type: "query", prompt };
+  }
+
+  return { type: "query", prompt: input };
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BYPASS = process.argv.includes("--dangerously-skip-permissions");
@@ -674,23 +757,34 @@ async function main() {
   print(c.sageGreen(hr("═")));
   print(c.skyBlue(s.bold("  Claude Agent SDK REPL")));
   print(c.lavender(`  Permissions: ${PERMISSION_MODE} | Output: ${VERBOSE ? "verbose" : "quiet"} | Log: ${LOG_FILE}`));
-  print(c.lavender(`  Type 'exit' to quit, 'reset' to start a new session.`));
+  print(c.lavender(`  Type /exit to quit, /clear to start a new session.`));
   print(c.sageGreen(hr("═")));
 
   while (true) {
     const input = await ask("\n> ");
 
-    if (!input) continue;
-    if (input === "exit") { process.stdout.write("\x1b[?2004l\r\n"); break; }
+    const action = await dispatchInput(input);
 
-    if (input === "reset") {
+    if (action.type === "skip") continue;
+
+    if (action.type === "exit") {
+      process.stdout.write("\x1b[?2004l\r\n");
+      break;
+    }
+
+    if (action.type === "clear") {
       sessionId = undefined;
-      print("Session reset.");
+      print("Session cleared.");
+      continue;
+    }
+
+    if (action.type === "unknown_command") {
+      print(c.boldRed(`Unknown command: /${action.command}`));
       continue;
     }
 
     try {
-      sessionId = await runQuery(input, sessionId);
+      sessionId = await runQuery(action.prompt, sessionId);
     } catch (err) {
       console.error(c.boldRed(`\nERROR: ${err}`));
       logFull("ERROR", err instanceof Error ? { message: err.message, stack: err.stack } : err);
