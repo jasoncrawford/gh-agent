@@ -769,6 +769,8 @@ async function main() {
 
     if (action.type === "exit") {
       process.stdout.write("\x1b[?2004l\r\n");
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
       break;
     }
 
