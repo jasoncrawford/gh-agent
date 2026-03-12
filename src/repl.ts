@@ -542,7 +542,7 @@ function defaultListDir(dir: string): Array<{ name: string; isDir: boolean }> | 
  */
 export function listCommandNames(listDir: ListDir = defaultListDir): string[] {
   const builtins = ["clear", "exit"];
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ""; // "" → walks "/.claude/commands" which will silently return null
   const commandsDir = `${home}/.claude/commands`;
   const fileCommands = walkDir(commandsDir, "", listDir);
   return [...new Set([...builtins, ...fileCommands])].sort();
