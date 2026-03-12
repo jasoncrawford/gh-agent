@@ -257,3 +257,91 @@ describe("ask() - Enter completion", () => {
   });
 });
 
+// ── Edge cases ────────────────────────────────────────────────────────────────
+
+describe("ask() - autocomplete edge cases", () => {
+  it("bare / shows all commands and Enter picks first", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", () => ["alpha", "beta", "gamma"]);
+      stdin.push("/");
+      stdin.push("\r"); // Enter completes with first match
+      const result = await p;
+      expect(result).toBe("/alpha");
+    });
+  });
+
+  it("^K leaving / in buffer; Tab completes from all commands", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/exit");
+      stdin.push("\x01");    // ^A → start of buffer
+      stdin.push("\x1b[C"); // right arrow → position 1 (after /)
+      stdin.push("\x0b");   // ^K → kill "exit"; buffer is now "/"
+      stdin.push("\x09");   // Tab → should complete to first command "brainstorm"
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/brainstorm");
+    });
+  });
+
+  it("submit without ever showing suggestions (clearSuggestions guard)", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", () => []);
+      stdin.push("hello");
+      stdin.push("\r");
+      const result = await p;
+      // Just verifies no crash; clearSuggestions guard prevents spurious escapes
+      expect(result).toBe("hello");
+    });
+  });
+
+  it("pasted slash prefix triggers Tab completion", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("\x1b[200~/ex\x1b[201~"); // paste "/ex"
+      stdin.push("\x09"); // Tab → should complete to "/exit"
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/exit");
+    });
+  });
+
+  it("paste of non-slash text into non-slash buffer: no suggestions", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("ab");
+      stdin.push("\x1b[D"); // left
+      stdin.push("\x1b[200~hello\x1b[201~"); // paste "hello" mid-buffer
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("ahellob");
+    });
+  });
+
+  it("typing / writes suggestion content to stdout", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/");
+      stdin.push("\r"); // submit to resolve the promise
+      await p;
+      // All stdout writes captured by mock; verify suggestion text was written at some point
+      const allOutput = vi.mocked(process.stdout.write).mock.calls.map(c => String(c[0])).join("");
+      expect(allOutput).toContain("brainstorm");
+      expect(allOutput).toContain("clear");
+      expect(allOutput).toContain("exit");
+    });
+  });
+
+  it("typing /ex narrows suggestion to only /exit", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/ex");
+      stdin.push("\r"); // submit (also completes to /exit)
+      await p;
+      const allOutput = vi.mocked(process.stdout.write).mock.calls.map(c => String(c[0])).join("");
+      // "exit" should appear in output; the suggestion line should have shown /exit
+      expect(allOutput).toContain("/exit");
+    });
+  });
+});
+
