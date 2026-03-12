@@ -1,5 +1,5 @@
 {
-  "name": "gh-agent",
+  "name": "brunel",
   "image": "ghcr.io/jasoncrawford/devcontainer-claude:latest",
   "remoteUser": "node",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
