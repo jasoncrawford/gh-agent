@@ -1,4 +1,4 @@
-# gh-agent
+# brunel
 
 A GitHub webhook listener that will evolve into a Claude Code agent. It receives GitHub events and prints structured summaries. Eventually it will invoke the Claude Agent SDK in response to events.
 
