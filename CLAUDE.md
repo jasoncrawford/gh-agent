@@ -14,6 +14,11 @@ npx smee-client --url https://smee.io/YOUR_CHANNEL --target http://localhost:300
 npm start
 ```
 
+## Git workflow
+
+- Always create a feature branch and PR for changes — never commit directly to `main`.
+- Do NOT auto-merge PRs — leave merging to the user after UAT.
+
 ## Key conventions
 
 - TypeScript with ESM (`"type": "module"`). New dependencies must be ESM-compatible.

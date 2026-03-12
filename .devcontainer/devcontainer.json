@@ -7,5 +7,10 @@
   "features": {
     "ghcr.io/jasoncrawford/devcontainer-claude/setup:1": {}
   },
+  "containerEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "VERCEL_TOKEN": "${localEnv:VERCEL_TOKEN}",
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+  },
   "waitFor": "postStartCommand"
 }
