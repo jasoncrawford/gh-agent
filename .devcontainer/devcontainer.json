@@ -12,5 +12,6 @@
     "VERCEL_TOKEN": "${localEnv:VERCEL_TOKEN}",
     "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
   },
+  "postCreateCommand": "npm ci",
   "waitFor": "postStartCommand"
 }
