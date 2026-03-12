@@ -60,3 +60,85 @@ describe("matchCommands", () => {
     expect(matchCommands("ex", [])).toEqual([]);
   });
 });
+
+// ── listCommandNames ──────────────────────────────────────────────────────────
+
+describe("listCommandNames", () => {
+  it("always includes builtins clear and exit", () => {
+    const result = listCommandNames(() => null);
+    expect(result).toContain("clear");
+    expect(result).toContain("exit");
+  });
+
+  it("returns only builtins when directory is missing", () => {
+    const result = listCommandNames(() => null);
+    expect(result).toEqual(["clear", "exit"]);
+  });
+
+  it("includes a file at root level", () => {
+    const listDir: ListDir = (dir) => {
+      if (dir.endsWith("commands")) return [{ name: "brainstorm.md", isDir: false }];
+      return null;
+    };
+    const result = listCommandNames(listDir);
+    expect(result).toContain("brainstorm");
+  });
+
+  it("converts subdirectory file to colon-separated name", () => {
+    const listDir: ListDir = (dir) => {
+      if (dir.endsWith("commands")) return [{ name: "foo", isDir: true }];
+      if (dir.endsWith("/foo")) return [{ name: "bar.md", isDir: false }];
+      return null;
+    };
+    const result = listCommandNames(listDir);
+    expect(result).toContain("foo:bar");
+  });
+
+  it("handles three levels of nesting", () => {
+    const listDir: ListDir = (dir) => {
+      if (dir.endsWith("commands")) return [{ name: "a", isDir: true }];
+      if (dir.endsWith("/a")) return [{ name: "b", isDir: true }];
+      if (dir.endsWith("/b")) return [{ name: "c.md", isDir: false }];
+      return null;
+    };
+    const result = listCommandNames(listDir);
+    expect(result).toContain("a:b:c");
+  });
+
+  it("deduplicates when a file name matches a builtin", () => {
+    const listDir: ListDir = (dir) => {
+      if (dir.endsWith("commands")) return [{ name: "clear.md", isDir: false }];
+      return null;
+    };
+    const result = listCommandNames(listDir);
+    const clears = result.filter(c => c === "clear");
+    expect(clears).toHaveLength(1);
+  });
+
+  it("ignores non-.md files", () => {
+    const listDir: ListDir = (dir) => {
+      if (dir.endsWith("commands")) return [
+        { name: "notes.txt", isDir: false },
+        { name: "script.sh", isDir: false },
+        { name: "valid.md", isDir: false },
+      ];
+      return null;
+    };
+    const result = listCommandNames(listDir);
+    expect(result).not.toContain("notes");
+    expect(result).not.toContain("script");
+    expect(result).toContain("valid");
+  });
+
+  it("result is sorted alphabetically", () => {
+    const listDir: ListDir = (dir) => {
+      if (dir.endsWith("commands")) return [
+        { name: "zebra.md", isDir: false },
+        { name: "alpha.md", isDir: false },
+      ];
+      return null;
+    };
+    const result = listCommandNames(listDir);
+    expect(result).toEqual([...result].sort());
+  });
+});

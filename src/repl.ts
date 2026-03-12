@@ -506,6 +506,48 @@ export function matchCommands(prefix: string, commands: string[]): string[] {
   return commands.filter(cmd => cmd.startsWith(prefix));
 }
 
+export type ListDir = (dir: string) => Array<{ name: string; isDir: boolean }> | null;
+
+function walkDir(dir: string, prefix: string, listDir: ListDir): string[] {
+  const entries = listDir(dir);
+  if (!entries) return [];
+  const result: string[] = [];
+  for (const entry of entries) {
+    const name = prefix ? `${prefix}:${entry.name}` : entry.name;
+    if (entry.isDir) {
+      result.push(...walkDir(`${dir}/${entry.name}`, name, listDir));
+    } else if (entry.name.endsWith(".md")) {
+      result.push(name.slice(0, -3)); // strip .md extension
+    }
+  }
+  return result;
+}
+
+function defaultListDir(dir: string): Array<{ name: string; isDir: boolean }> | null {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true }).map(e => ({
+      name: e.name,
+      isDir: e.isDirectory(),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return all available command names: builtins ("clear", "exit") plus
+ * any .md files found under ~/.claude/commands/ (recursively).
+ * Subdirectory names become colon-separated prefixes: foo/bar.md → "foo:bar".
+ * The listDir parameter is injectable for testing.
+ */
+export function listCommandNames(listDir: ListDir = defaultListDir): string[] {
+  const builtins = ["clear", "exit"];
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const commandsDir = `${home}/.claude/commands`;
+  const fileCommands = walkDir(commandsDir, "", listDir);
+  return [...new Set([...builtins, ...fileCommands])].sort();
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BYPASS = process.argv.includes("--dangerously-skip-permissions");
