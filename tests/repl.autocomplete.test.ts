@@ -142,3 +142,118 @@ describe("listCommandNames", () => {
     expect(result).toEqual([...result].sort());
   });
 });
+
+// ── Tab completion ────────────────────────────────────────────────────────────
+
+describe("ask() - Tab completion", () => {
+  it("Tab with no match is a no-op", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/zzz");
+      stdin.push("\x09"); // Tab
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/zzz");
+    });
+  });
+
+  it("Tab with one match completes buffer", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/ex");
+      stdin.push("\x09"); // Tab
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/exit");
+    });
+  });
+
+  it("Tab with multiple matches completes to first (alphabetical)", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/");
+      stdin.push("\x09"); // Tab — "brainstorm" is first alphabetically
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/brainstorm");
+    });
+  });
+
+  it("Tab on non-slash input is a no-op", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("hello");
+      stdin.push("\x09"); // Tab
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("hello");
+    });
+  });
+
+  it("Tab with cursor not at end completes and moves cursor to end", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/ex");
+      stdin.push("\x1b[D"); // left arrow (cursor now at position 2)
+      stdin.push("\x09");   // Tab
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/exit");
+    });
+  });
+});
+
+// ── Enter completion ──────────────────────────────────────────────────────────
+
+describe("ask() - Enter completion", () => {
+  it("Enter with one match completes and submits", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/ex");
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/exit");
+    });
+  });
+
+  it("Enter with no match (slash prefix) submits as-is", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/zzz");
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/zzz");
+    });
+  });
+
+  it("Enter on non-slash input submits as-is (no completion)", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("hello world");
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("hello world");
+    });
+  });
+
+  it("Enter with space after command does not complete (no suggestions)", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/exit foo");
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("/exit foo");
+    });
+  });
+
+  it("\\n also triggers Enter completion", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/ex");
+      stdin.push("\n");
+      const result = await p;
+      expect(result).toBe("/exit");
+    });
+  });
+});
+
