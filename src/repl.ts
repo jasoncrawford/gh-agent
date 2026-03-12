@@ -624,12 +624,17 @@ export async function runQuery(prompt: string, sessionId: string | undefined) {
 // (\x1b[200~ ... \x1b[201~), letting us collect it as a single input
 // rather than having each newline submit a separate prompt.
 
-export function ask(promptStr: string): Promise<string> {
+export function ask(promptStr: string, getCommands: () => string[] = () => listCommandNames()): Promise<string> {
   return new Promise((resolve) => {
     let buffer = "";
     let pasteBuffer = "";
     let inPaste = false;
     let done = false;
+    let suggestionsShown = false;
+    // Visual length of prompt on the terminal line (excludes any leading \n)
+    const promptVisualLen = promptStr.slice(promptStr.lastIndexOf("\n") + 1).length;
+    let commands: string[] = [];
+    try { commands = getCommands(); } catch { /* graceful: use empty */ }
 
     process.stdout.write(promptStr);
 
