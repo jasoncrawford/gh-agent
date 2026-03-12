@@ -496,6 +496,16 @@ export async function dispatchInput(
   return { type: "query", prompt: input };
 }
 
+// ── Autocomplete ─────────────────────────────────────────────────────────────
+
+/**
+ * Filter commands by prefix. Returns commands that start with prefix.
+ * Empty prefix returns all commands. Preserves input order.
+ */
+export function matchCommands(prefix: string, commands: string[]): string[] {
+  return commands.filter(cmd => cmd.startsWith(prefix));
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BYPASS = process.argv.includes("--dangerously-skip-permissions");
