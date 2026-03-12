@@ -653,6 +653,47 @@ export function ask(promptStr: string, getCommands: () => string[] = () => listC
 
     let cursor = 0; // current cursor position within buffer
 
+    // ── Autocomplete ────────────────────────────────────────────────────────
+
+    function computeMatches(): string[] {
+      if (!buffer.startsWith("/")) return [];
+      if (buffer.slice(1).includes(" ")) return [];
+      const prefix = buffer.slice(1).split(/\s+/)[0];
+      // prefix is "" when buffer is exactly "/" — matchCommands("", ...) returns all
+      return matchCommands(prefix, commands).slice(0, 3);
+    }
+
+    function refreshSuggestions() {
+      const matches = computeMatches();
+      const fromEnd = buffer.length - cursor;
+      if (fromEnd > 0) process.stdout.write(`\x1b[${fromEnd}C`);
+      process.stdout.write("\r\n\x1b[K");
+      if (matches.length > 0) {
+        process.stdout.write(c.darkGray("  " + matches.map(m => "/" + m).join("  ")));
+      }
+      process.stdout.write("\x1b[A\r");
+      const fwd = promptVisualLen + cursor;
+      if (fwd > 0) process.stdout.write(`\x1b[${fwd}C`);
+      suggestionsShown = matches.length > 0;
+    }
+
+    function clearSuggestions() {
+      if (!suggestionsShown) return;
+      const fromEnd = buffer.length - cursor;
+      if (fromEnd > 0) process.stdout.write(`\x1b[${fromEnd}C`);
+      process.stdout.write("\r\n\x1b[K\x1b[A\r");
+      const fwd = promptVisualLen + cursor;
+      if (fwd > 0) process.stdout.write(`\x1b[${fwd}C`);
+      suggestionsShown = false;
+    }
+
+    function replaceBuffer(newText: string) {
+      if (cursor > 0) process.stdout.write(`\x1b[${cursor}D`);
+      process.stdout.write(newText + "\x1b[K");
+      buffer = newText;
+      cursor = newText.length;
+    }
+
     // Write suffix from cursor, clear trailing chars, reposition cursor
     function redrawSuffix() {
       const rest = buffer.slice(cursor);
@@ -736,20 +777,30 @@ export function ask(promptStr: string, getCommands: () => string[] = () => listC
 
       for (const ch of data) {
         const code = ch.charCodeAt(0);
-        if      (ch === "\r" || ch === "\n")          { submit(buffer); return; }
-        else if (ch === "\x7f" || ch === "\x08")      { deleteBack(); }
+        if (ch === "\r" || ch === "\n") {
+          const matches = computeMatches();
+          if (matches.length > 0) { replaceBuffer("/" + matches[0]); }
+          clearSuggestions();
+          submit(buffer);
+          return;
+        }
+        else if (ch === "\x7f" || ch === "\x08")      { deleteBack(); refreshSuggestions(); }
         else if (ch === "\x03") { process.stdout.write("^C"); exit(); }
         else if (ch === "\x04") { if (!buffer) exit(); }
         else if (ch === "\x01")                       { moveTo(0); }             // ^A
         else if (ch === "\x05")                       { moveTo(buffer.length); } // ^E
-        else if (ch === "\x0b")                       { killToEnd(); }           // ^K
-        else if (ch === "\x15")                       { killToStart(); }         // ^U
-        else if (ch === "\x17")                       { deleteWord(); }          // ^W
+        else if (ch === "\x0b")                       { killToEnd(); refreshSuggestions(); }           // ^K
+        else if (ch === "\x15")                       { killToStart(); refreshSuggestions(); }         // ^U
+        else if (ch === "\x17")                       { deleteWord(); refreshSuggestions(); }          // ^W
         else if (ch === "\x1c")                       { moveWordLeft(); }        // option+←
         else if (ch === "\x1d")                       { moveWordRight(); }       // option+→
         else if (ch === "\x1e")                       { moveTo(cursor - 1); }   // ←
         else if (ch === "\x1f")                       { moveTo(cursor + 1); }   // →
-        else if (code >= 32)                          { insert(ch); }
+        else if (ch === "\x09") {                                                            // Tab
+          const matches = computeMatches();
+          if (matches.length > 0) { replaceBuffer("/" + matches[0]); refreshSuggestions(); }
+        }
+        else if (code >= 32)                          { insert(ch); refreshSuggestions(); }
       }
     }
 
@@ -763,6 +814,7 @@ export function ask(promptStr: string, getCommands: () => string[] = () => listC
       // Echo with \r\n... for newlines, then redraw any suffix after cursor
       process.stdout.write(str.split("\n").join("\r\n... "));
       redrawSuffix();
+      refreshSuggestions();
     }
 
     function onData(chunk: string) {
