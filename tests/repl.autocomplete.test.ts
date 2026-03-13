@@ -343,5 +343,58 @@ describe("ask() - autocomplete edge cases", () => {
       expect(allOutput).toContain("/exit");
     });
   });
+
+  it("space after /ex hides suggestion content; second space draws no suggestion text", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/ex");
+      vi.mocked(process.stdout.write).mockClear();
+      stdin.push(" ");
+      // After the space, refreshSuggestions runs with no matches — suggestion text gone
+      const afterSpace = vi.mocked(process.stdout.write).mock.calls.map(c => String(c[0]));
+      vi.mocked(process.stdout.write).mockClear();
+      stdin.push(" "); // second space — still no suggestions
+      const afterSecondSpace = vi.mocked(process.stdout.write).mock.calls.map(c => String(c[0]));
+      stdin.push("\r");
+      await p;
+      // No suggestion content (brainstorm/clear/exit) after first space
+      const hasSuggestionAfterSpace = afterSpace.some(s =>
+        s.includes("brainstorm") || s.includes("clear") || s.includes("exit")
+      );
+      expect(hasSuggestionAfterSpace).toBe(false);
+      // No suggestion content after second space either
+      const hasSuggestionAfterSecondSpace = afterSecondSpace.some(s =>
+        s.includes("brainstorm") || s.includes("clear") || s.includes("exit")
+      );
+      expect(hasSuggestionAfterSecondSpace).toBe(false);
+    });
+  });
+
+  it("^U kill then non-slash char: suggestions do not appear", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("/exit");
+      stdin.push("\x15"); // ^U — kill to start; buffer is now ""
+      vi.mocked(process.stdout.write).mockClear();
+      stdin.push("h");   // non-slash char; computeMatches should return []
+      const afterH = vi.mocked(process.stdout.write).mock.calls.map(c => String(c[0]));
+      stdin.push("\r");
+      await p;
+      // No suggestion content should have been drawn after typing "h"
+      const hasSuggestionContent = afterH.some(s =>
+        s.includes("brainstorm") || s.includes("clear") || s.includes("exit")
+      );
+      expect(hasSuggestionContent).toBe(false);
+    });
+  });
+
+  it("Enter on empty input submits empty string (clearSuggestions guard fires silently)", async () => {
+    await withFakeStdin(async (stdin) => {
+      const p = ask("> ", cmds);
+      stdin.push("\r");
+      const result = await p;
+      expect(result).toBe("");
+    });
+  });
 });
 
