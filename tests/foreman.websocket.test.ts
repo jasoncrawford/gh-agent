@@ -175,12 +175,13 @@ describe("foreman WebSocket protocol", () => {
     await closeClient(ws1);
 
     const ws2 = await connect();
-    let msgReceived = false;
-    ws2.once("message", () => { msgReceived = true; });
     send(ws2, { type: "worker_hello", workerId: "w1", taskId: "1", status: "busy" });
-    await new Promise((r) => setTimeout(r, 50));
+    const raceResult = await Promise.race([
+      nextMsg(ws2).then(() => "message" as const),
+      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 50)),
+    ]);
 
-    expect(msgReceived).toBe(false); // no task_assigned (would reset in-progress session)
+    expect(raceResult).toBe("timeout"); // no task_assigned (would reset in-progress session)
     expect(registry.get("w1")?.status).toBe("busy");
     expect(registry.get("w1")?.currentTaskId).toBe("1");
     expect(queue.get("1")?.status).toBe("assigned");
@@ -241,11 +242,12 @@ describe("foreman WebSocket protocol", () => {
 
     // Worker A reconnects — should reclaim silently
     const wsA2 = await connect();
-    let aGotMsg = false;
-    wsA2.once("message", () => { aGotMsg = true; });
     send(wsA2, { type: "worker_hello", workerId: "worker-a", taskId: "1", status: "busy" });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(aGotMsg).toBe(false);
+    const raceResult2 = await Promise.race([
+      nextMsg(wsA2).then(() => "message" as const),
+      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 50)),
+    ]);
+    expect(raceResult2).toBe("timeout");
     expect(registry.get("worker-a")?.status).toBe("busy");
   });
 
