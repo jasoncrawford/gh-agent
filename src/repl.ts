@@ -7,17 +7,7 @@ import {
   startStatus, stopStatus, print,
   toolUseNames, printMessage, printHook,
 } from "./display.js";
-export {
-  VERBOSE, setVerbose,
-  trunc, fmtCount, fmtStats, fmtArgs, fmtToolCall, fmtHunk, fmtEditResult, toolResultText,
-  mdInline, renderTable, renderMarkdown,
-  c, s, W, hr,
-  Fmt, FmtEntry, FmtTable,
-  ASSISTANT_BLOCK_FMT, USER_BLOCK_FMT, TOOL_CALL_FMT, TOOL_RESULT_FMT,
-  TOOL_ERROR_FMT, SYSTEM_FMT, MESSAGE_FMT, HOOK_FMT,
-  toolUseNames, resolve, printBlock, printMessage, printHook,
-  startStatus, stopStatus, print, _statusActive,
-} from "./display.js";
+export * from "./display.js";
 
 // ── Log file ──────────────────────────────────────────────────────────────────
 
