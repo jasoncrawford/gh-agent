@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import * as http from "http";
-import { WebSocket } from "ws";
 import { createForemanWss, WorkerRegistry, TaskQueue } from "../src/foreman.js";
+import { connectToForeman } from "../src/repl.js";
+import type { ForemanMessage } from "../src/types.js";
 
 function startTestForeman(): Promise<{ port: number; close: () => void }> {
   return new Promise((resolve) => {
@@ -15,27 +16,29 @@ function startTestForeman(): Promise<{ port: number; close: () => void }> {
 }
 
 describe("worker WebSocket connection", () => {
-  it("worker connects to foreman at /worker path", async () => {
+  it("worker client connects to foreman and completes handshake", async () => {
     const { port, close } = await startTestForeman();
-    const FOREMAN_URL = `ws://localhost:${port}`;
 
-    // This is the exact URL construction used in workerMain's connectWs
-    const ws = new WebSocket(`${FOREMAN_URL}/worker`);
-    await new Promise<void>((resolve, reject) => {
-      ws.on("open", resolve);
+    // connectToForeman is the real client code: constructs the /worker URL and sends worker_hello
+    const ws = connectToForeman(`ws://localhost:${port}`, "test-worker-id");
+
+    const msg = await new Promise<ForemanMessage>((resolve, reject) => {
+      ws.on("message", (data) => resolve(JSON.parse(data.toString())));
       ws.on("error", reject);
     });
+
+    expect(msg.type).toBe("standby");
 
     ws.close();
     close();
   });
 
-  it("foreman rejects connections not at /worker (regression guard)", async () => {
+  it("foreman rejects connections not at /worker path (regression guard)", async () => {
     const { port, close } = await startTestForeman();
-    const FOREMAN_URL = `ws://localhost:${port}`;
 
-    // The original bug: connecting to the bare URL gets socket.destroy()'d by foreman
-    const ws = new WebSocket(FOREMAN_URL);
+    // Original bug: bare URL gets socket.destroy()'d by the real foreman routing
+    const { WebSocket } = await import("ws");
+    const ws = new WebSocket(`ws://localhost:${port}`);
     await expect(
       new Promise<void>((resolve, reject) => {
         ws.on("open", resolve);
