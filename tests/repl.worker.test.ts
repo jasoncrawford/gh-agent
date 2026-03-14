@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { buildWorkerWsUrl } from "../src/repl.js";
 
 function makeForemanServer(): Promise<{ port: number; close: () => void }> {
   return new Promise((resolve) => {
@@ -29,7 +28,7 @@ describe("worker WebSocket connection", () => {
     const { port, close } = await makeForemanServer();
     const baseUrl = `ws://localhost:${port}`;
 
-    const ws = new WebSocket(buildWorkerWsUrl(baseUrl));
+    const ws = new WebSocket(`${baseUrl}/worker`);
     await new Promise<void>((resolve, reject) => {
       ws.on("open", resolve);
       ws.on("error", reject);
