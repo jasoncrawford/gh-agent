@@ -1,0 +1,522 @@
+import { Webhooks } from "@octokit/webhooks";
+import http from "http";
+import "dotenv/config";
+import { WebSocketServer } from "ws";
+import type { WebSocket as WsSocket } from "ws";
+import type { WorkerMessage, ForemanMessage, GitHubEvent } from "./types.js";
+
+type R = Record<string, unknown>;
+
+const PORT = parseInt(process.env.PORT ?? "3000");
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+// ── WorkerRegistry ────────────────────────────────────────────────────────────
+
+interface WorkerState {
+  workerId: string;
+  ws: WsSocket;
+  status: "idle" | "busy";
+  currentTaskId?: string;
+}
+
+export class WorkerRegistry {
+  private workers = new Map<string, WorkerState>();
+
+  register(workerId: string, ws: WsSocket, status: "idle" | "busy", taskId?: string) {
+    this.workers.set(workerId, { workerId, ws, status, currentTaskId: taskId });
+  }
+
+  get(workerId: string): WorkerState | undefined {
+    return this.workers.get(workerId);
+  }
+
+  remove(workerId: string) {
+    this.workers.delete(workerId);
+  }
+
+  getIdleWorker(): WorkerState | null {
+    for (const w of this.workers.values()) {
+      if (w.status === "idle") return w;
+    }
+    return null;
+  }
+
+  getWorkerForTask(taskId: string): WorkerState | null {
+    for (const w of this.workers.values()) {
+      if (w.currentTaskId === taskId) return w;
+    }
+    return null;
+  }
+
+  assignTask(workerId: string, taskId: string) {
+    const w = this.workers.get(workerId);
+    if (!w) return;
+    w.status = "busy";
+    w.currentTaskId = taskId;
+  }
+
+  releaseWorker(workerId: string) {
+    const w = this.workers.get(workerId);
+    if (!w) return;
+    w.status = "idle";
+    w.currentTaskId = undefined;
+  }
+
+  send(workerId: string, msg: ForemanMessage) {
+    const w = this.workers.get(workerId);
+    if (w?.ws.readyState === 1 /* OPEN */) {
+      w.ws.send(JSON.stringify(msg));
+    }
+  }
+}
+
+// ── TaskQueue ─────────────────────────────────────────────────────────────────
+
+interface Task {
+  taskId: string;
+  issueNumber: number;
+  title: string;
+  body: string;
+  labels: string[];
+  repoUrl: string;
+  status: "pending" | "assigned" | "complete";
+  assignedWorkerId?: string;
+  eventQueue: GitHubEvent[];
+}
+
+export class TaskQueue {
+  private tasks = new Map<string, Task>();
+
+  addTask(t: Omit<Task, "status" | "assignedWorkerId" | "eventQueue"> & Partial<Pick<Task, "status" | "eventQueue">>) {
+    this.tasks.set(t.taskId, {
+      ...t,
+      status: t.status ?? "pending",
+      eventQueue: t.eventQueue ?? [],
+    });
+  }
+
+  get(taskId: string): Task | undefined {
+    return this.tasks.get(taskId);
+  }
+
+  getTaskForIssue(issueNumber: number): Task | undefined {
+    for (const t of this.tasks.values()) {
+      if (t.issueNumber === issueNumber) return t;
+    }
+    return undefined;
+  }
+
+  nextPending(): Task | null {
+    for (const t of this.tasks.values()) {
+      if (t.status === "pending") return t;
+    }
+    return null;
+  }
+
+  assignTask(taskId: string, workerId: string) {
+    const t = this.tasks.get(taskId);
+    if (!t) return;
+    t.status = "assigned";
+    t.assignedWorkerId = workerId;
+  }
+
+  completeTask(taskId: string) {
+    const t = this.tasks.get(taskId);
+    if (t) t.status = "complete";
+  }
+
+  queueEvent(taskId: string, event: GitHubEvent) {
+    const t = this.tasks.get(taskId);
+    if (t) t.eventQueue.push(event);
+  }
+
+  drainEvents(taskId: string): GitHubEvent[] {
+    const t = this.tasks.get(taskId);
+    if (!t) return [];
+    const events = t.eventQueue.slice();
+    t.eventQueue = [];
+    return events;
+  }
+}
+
+// ── GitHub API helpers ────────────────────────────────────────────────────────
+// Read env vars inside function bodies (not at module load) so that tests can
+// set process.env values before calling the function.
+
+function ghEnv() {
+  return {
+    repo:       process.env.GITHUB_REPO ?? "",
+    token:      process.env.GITHUB_TOKEN ?? "",
+    taskLabel:  process.env.TASK_LABEL ?? "brunel:ready",
+    doneLabel:  process.env.DONE_LABEL ?? "brunel:done",
+  };
+}
+
+function ghHeaders(token: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+export async function loadIssuesToQueue(queue: TaskQueue): Promise<void> {
+  const { repo, token, taskLabel } = ghEnv();
+  const [owner, repoName] = repo.split("/");
+  const url = `https://api.github.com/repos/${owner}/${repoName}/issues?labels=${encodeURIComponent(taskLabel)}&state=open&per_page=100`;
+  const res = await fetch(url, { headers: ghHeaders(token) });
+  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+  const issues = await res.json() as Array<{ number: number; title: string; body: string | null; labels: Array<{ name: string }> }>;
+  for (const issue of issues) {
+    queue.addTask({
+      taskId: String(issue.number),
+      issueNumber: issue.number,
+      title: issue.title,
+      body: issue.body ?? "",
+      labels: issue.labels.map(l => l.name),
+      repoUrl: `https://github.com/${owner}/${repoName}`,
+    });
+  }
+}
+
+export async function labelIssueDone(issueNumber: number): Promise<void> {
+  const { repo, token, doneLabel } = ghEnv();
+  const [owner, repoName] = repo.split("/");
+  await fetch(`https://api.github.com/repos/${owner}/${repoName}/issues/${issueNumber}/labels`, {
+    method: "POST",
+    headers: { ...ghHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ labels: [doneLabel] }),
+  });
+}
+
+// ── Webhook handler ───────────────────────────────────────────────────────────
+
+const webhooks = WEBHOOK_SECRET ? new Webhooks({ secret: WEBHOOK_SECRET }) : null;
+
+if (webhooks) {
+  webhooks.onAny(({ id, name, payload }) => {
+    printEvent(id, name as string, payload);
+    routeEventToWorker(id, name as string, payload);
+  });
+}
+
+function printEvent(id: string, name: string, payload: unknown) {
+  const p = payload as Record<string, unknown>;
+  const action = typeof p.action === "string" ? ` / ${p.action}` : "";
+
+  console.log(`\n${"═".repeat(70)}`);
+  console.log(`EVENT   ${name}${action}`);
+  console.log(`ID      ${id}`);
+  console.log("─".repeat(70));
+
+  const repo = p.repository as R | undefined;
+  const sender = p.sender as R | undefined;
+  if (repo) console.log(`REPO    ${repo.full_name}`);
+  if (sender) console.log(`BY      ${sender.login}`);
+
+  details(name, p);
+  console.log("═".repeat(70));
+}
+
+function field(label: string, value: unknown) {
+  if (value == null || value === "" || value === false) return;
+  console.log(`${label.padEnd(8)}${value}`);
+}
+
+function body(label: string, text: unknown) {
+  const s = String(text ?? "").trim();
+  if (!s) return;
+  console.log(`\n${label}:\n${s}`);
+}
+
+function logins(items: R[] | undefined) {
+  return items?.map((i) => i.login).join(", ") ?? "";
+}
+
+function labels(items: { name: string }[] | undefined) {
+  return items?.map((l) => l.name).join(", ") ?? "";
+}
+
+function details(name: string, p: R) {
+  const issue = p.issue as R | undefined;
+  const pr = p.pull_request as R | undefined;
+  const comment = p.comment as R | undefined;
+  const review = p.review as R | undefined;
+
+  switch (name) {
+    case "issues": {
+      if (!issue) break;
+      field("ISSUE", `#${issue.number}: ${issue.title}`);
+      field("STATE", issue.state);
+      field("LABELS", labels(issue.labels as { name: string }[]));
+      field("ASSIGN", logins(issue.assignees as R[]));
+      body("BODY", issue.body);
+      if (p.action === "labeled" || p.action === "unlabeled") {
+        field("LABEL", (p.label as R)?.name);
+      }
+      break;
+    }
+
+    case "issue_comment": {
+      if (!issue || !comment) break;
+      field("ISSUE", `#${issue.number}: ${issue.title}`);
+      field("STATE", issue.state);
+      field("LABELS", labels(issue.labels as { name: string }[]));
+      body("COMMENT", comment.body);
+      break;
+    }
+
+    case "pull_request": {
+      if (!pr) break;
+      const head = pr.head as R;
+      const base = pr.base as R;
+      field("PR", `#${pr.number}: ${pr.title}`);
+      field("BRANCH", `${head.ref} → ${base.ref}`);
+      field("STATE", `${pr.state}${pr.draft ? " (draft)" : ""}${pr.merged ? " (merged)" : ""}`);
+      field("LABELS", labels(pr.labels as { name: string }[]));
+      field("ASSIGN", logins(pr.assignees as R[]));
+      field("REVIEW", logins(pr.requested_reviewers as R[]));
+      body("BODY", pr.body);
+      break;
+    }
+
+    case "pull_request_review": {
+      if (!pr || !review) break;
+      field("PR", `#${pr.number}: ${pr.title}`);
+      field("STATE", review.state);
+      body("REVIEW", review.body);
+      break;
+    }
+
+    case "pull_request_review_comment": {
+      if (!pr || !comment) break;
+      field("PR", `#${pr.number}: ${pr.title}`);
+      field("FILE", `${comment.path} (line ${comment.original_line ?? comment.line ?? "?"})`);
+      body("DIFF", comment.diff_hunk);
+      body("COMMENT", comment.body);
+      break;
+    }
+
+    case "push": {
+      const commits = p.commits as R[] | undefined;
+      field("REF", p.ref);
+      field("COMMITS", commits?.length ?? 0);
+      commits?.forEach((c) => {
+        const author = (c.author as R)?.name ?? "?";
+        const sha = String(c.id).slice(0, 7);
+        console.log(`  ${sha}  ${c.message}  (${author})`);
+      });
+      break;
+    }
+
+    case "check_run": {
+      const run = p.check_run as R;
+      const output = run.output as R | undefined;
+      field("CHECK", run.name);
+      field("STATUS", `${run.status} / ${run.conclusion ?? "pending"}`);
+      if (output?.title) body("OUTPUT", `${output.title}\n${output.summary ?? ""}`);
+      break;
+    }
+
+    case "workflow_run": {
+      const run = p.workflow_run as R;
+      field("WORKFLOW", run.name);
+      field("BRANCH", run.head_branch);
+      field("STATUS", `${run.status} / ${run.conclusion ?? "pending"}`);
+      break;
+    }
+
+    case "create":
+    case "delete":
+      field("REF", `${p.ref} (${p.ref_type})`);
+      break;
+
+    case "release": {
+      const release = p.release as R;
+      field("RELEASE", `${release.tag_name}: ${release.name}`);
+      body("BODY", release.body);
+      break;
+    }
+  }
+}
+
+// ── HTTP server ───────────────────────────────────────────────────────────────
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === "POST" && req.url === "/webhook") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk as Buffer);
+    }
+    const rawBody = Buffer.concat(chunks).toString();
+
+    const id = (req.headers["x-github-delivery"] as string) ?? "unknown";
+    const name = req.headers["x-github-event"] as string;
+    const signature = req.headers["x-hub-signature-256"] as string;
+
+    if (!name) {
+      res.writeHead(400);
+      res.end("Missing x-github-event header");
+      return;
+    }
+
+    try {
+      if (webhooks) {
+        if (!signature) {
+          res.writeHead(401);
+          res.end("Missing signature");
+          return;
+        }
+        await webhooks.verifyAndReceive({
+          id,
+          name: name as Parameters<typeof webhooks.verifyAndReceive>[0]["name"],
+          signature,
+          payload: rawBody,
+        });
+      } else {
+        const parsed = JSON.parse(rawBody);
+        printEvent(id, name, parsed);
+        routeEventToWorker(id, name, parsed);
+      }
+      res.writeHead(200);
+      res.end("OK");
+    } catch (err) {
+      console.error("Webhook processing error:", err);
+      res.writeHead(400);
+      res.end("Bad Request");
+    }
+    return;
+  }
+
+  if (req.url === "/") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("GitHub webhook listener running. POST events to /webhook");
+    return;
+  }
+
+  res.writeHead(404);
+  res.end("Not Found");
+});
+
+// ── WebSocket server ──────────────────────────────────────────────────────────
+
+const wss = new WebSocketServer({ noServer: true });
+const registry = new WorkerRegistry();
+const taskQueue = new TaskQueue();
+
+function routeEventToWorker(id: string, name: string, payload: unknown) {
+  const p = payload as Record<string, unknown>;
+  const issue = (p.issue ?? p.pull_request) as Record<string, unknown> | undefined;
+  const issueNumber = typeof issue?.number === "number" ? issue.number : null;
+  if (issueNumber === null) return;
+
+  const evt: GitHubEvent = { id, name, payload: p };
+  const task = taskQueue.getTaskForIssue(issueNumber);
+  if (!task) return;
+
+  if (task.status === "assigned" && task.assignedWorkerId) {
+    registry.send(task.assignedWorkerId, { type: "event_notification", taskId: task.taskId, event: evt });
+  } else if (task.status === "pending") {
+    taskQueue.queueEvent(task.taskId, evt);
+  }
+}
+
+function tryAssignWork(workerId: string) {
+  const task = taskQueue.nextPending();
+  if (task) {
+    taskQueue.assignTask(task.taskId, workerId);
+    registry.assignTask(workerId, task.taskId);
+    // Forward any pre-queued events
+    const queued = taskQueue.drainEvents(task.taskId);
+    registry.send(workerId, {
+      type: "task_assigned",
+      taskId: task.taskId,
+      issue: {
+        number: task.issueNumber,
+        title: task.title,
+        body: task.body,
+        labels: task.labels,
+        repoUrl: task.repoUrl,
+      },
+    });
+    for (const evt of queued) {
+      registry.send(workerId, { type: "event_notification", taskId: task.taskId, event: evt });
+    }
+  } else {
+    registry.send(workerId, { type: "standby" });
+  }
+}
+
+wss.on("connection", (ws) => {
+  let workerId = "";
+
+  ws.on("message", (data) => {
+    let msg: WorkerMessage;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+
+    if (msg.type === "worker_hello") {
+      workerId = msg.workerId;
+
+      if (msg.status === "busy" && msg.taskId) {
+        // Reconnecting worker claiming its task
+        const existing = taskQueue.get(msg.taskId);
+        if (existing && existing.status !== "assigned") {
+          // Task is free — worker reclaims it
+          registry.register(workerId, ws, "busy", msg.taskId);
+          taskQueue.assignTask(msg.taskId, workerId);
+          // Forward any queued events
+          const queued = taskQueue.drainEvents(msg.taskId);
+          for (const evt of queued) {
+            registry.send(workerId, { type: "event_notification", taskId: msg.taskId, event: evt });
+          }
+        } else if (!existing) {
+          // Task unknown (e.g. completed while disconnected) — treat as idle
+          registry.register(workerId, ws, "idle");
+          tryAssignWork(workerId);
+        } else {
+          // Task already assigned to another worker — standby
+          registry.register(workerId, ws, "idle");
+          registry.send(workerId, { type: "standby" });
+        }
+      } else {
+        registry.register(workerId, ws, "idle");
+        tryAssignWork(workerId);
+      }
+    }
+
+    if (msg.type === "task_complete") {
+      const task = taskQueue.get(msg.taskId);
+      if (task) {
+        taskQueue.completeTask(msg.taskId);
+        labelIssueDone(task.issueNumber).catch(err =>
+          console.error("Failed to label issue done:", err)
+        );
+      }
+      registry.releaseWorker(workerId);
+      tryAssignWork(workerId);
+    }
+  });
+
+  ws.on("close", () => {
+    if (workerId) registry.remove(workerId);
+  });
+});
+
+server.on("upgrade", (req, socket, head) => {
+  if (req.url === "/worker") {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+  } else {
+    socket.destroy();
+  }
+});
+
+server.listen(PORT, async () => {
+  console.log(`\nListening on http://localhost:${PORT}/webhook`);
+  console.log("WebSocket workers: ws://localhost:" + PORT + "/worker");
+  console.log("Waiting for events...\n");
+  try {
+    await loadIssuesToQueue(taskQueue);
+  } catch (err) {
+    console.error("Warning: failed to load issues from GitHub:", err);
+  }
+});
