@@ -9,6 +9,7 @@
     "start": "tsx src/foreman.ts",
     "dev": "tsx watch src/foreman.ts",
     "repl": "tsx src/repl.ts",
+    "worker": "tsx src/repl.ts --worker-mode",
     "test": "vitest run",
     "test:watch": "vitest"
   },
