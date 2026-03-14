@@ -469,7 +469,8 @@ export function createForemanWss(
 
         if (msg.status === "busy" && msg.taskId) {
           const existing = taskQueue.get(msg.taskId);
-          if (existing && existing.status !== "assigned") {
+          if (existing && (existing.status !== "assigned" || existing.assignedWorkerId === workerId)) {
+            // Task is free, or this is the worker that owns it — reclaim.
             registry.register(workerId, ws, "busy", msg.taskId);
             taskQueue.assignTask(msg.taskId, workerId);
             const queued = taskQueue.drainEvents(msg.taskId);
@@ -480,6 +481,7 @@ export function createForemanWss(
             registry.register(workerId, ws, "idle");
             tryAssignWork(workerId);
           } else {
+            // Task is assigned to a different worker — standby
             registry.register(workerId, ws, "idle");
             registry.send(workerId, { type: "standby" });
           }
