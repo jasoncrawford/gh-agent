@@ -52,7 +52,7 @@ export function fmtDuration(secs: number): string {
 }
 
 export function fmtNum(n: number): string {
-  if (n >= 1000) return `${Math.floor(n / 1000)}k`;
+  if (n >= 1000) return `${parseFloat((n / 1000).toPrecision(3))}k`;
   return `${n}`;
 }
 

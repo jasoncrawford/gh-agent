@@ -109,8 +109,16 @@ describe("fmtNum", () => {
     expect(fmtNum(31026)).toBe("31k");
   });
 
-  it("rounds down (floor)", () => {
-    expect(fmtNum(1999)).toBe("1k");
+  it("1990 is 1.99k (3 significant figures)", () => {
+    expect(fmtNum(1990)).toBe("1.99k");
+  });
+
+  it("1999 rounds to 2k", () => {
+    expect(fmtNum(1999)).toBe("2k");
+  });
+
+  it("15342 is 15.3k (3 significant figures)", () => {
+    expect(fmtNum(15342)).toBe("15.3k");
   });
 
   it("0 is 0", () => {
