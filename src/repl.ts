@@ -578,6 +578,10 @@ export async function workerMain() {
   let currentSessionId: string | undefined;
   let currentIssue: TaskIssue | undefined;
 
+  // Sentinel values used to signal WebSocket events through ask()'s abort param
+  const WS_TASK_ASSIGNED = "__task_assigned__";
+  const WS_EVENT = "__event__";
+
   // Signalling: when the worker is waiting at the prompt, a WebSocket event
   // can resolve this to interrupt ask() and process the event.
   let resolveWsInput: ((v: string) => void) | null = null;
@@ -592,8 +596,10 @@ export async function workerMain() {
   display.print(display.c.lavender(`  Worker ID: ${workerId} | Foreman: ${FOREMAN_URL}`));
   display.print(display.c.sageGreen(display.hr("═")));
 
-  function connectWs(): WebSocket {
-    const ws = new WebSocket(FOREMAN_URL);
+  let ws: WebSocket;
+
+  function connectWs(): void {
+    ws = new WebSocket(FOREMAN_URL);
 
     ws.on("message", (data) => {
       let msg: ForemanMessage;
@@ -603,11 +609,11 @@ export async function workerMain() {
         currentTaskId = msg.taskId;
         currentIssue = msg.issue;
         currentSessionId = undefined;
-        resolveWsInput?.("__task_assigned__");
+        resolveWsInput?.(WS_TASK_ASSIGNED);
         resolveWsInput = null;
       } else if (msg.type === "event_notification") {
         pendingEvents.push(msg.event);
-        resolveWsInput?.("__event__");
+        resolveWsInput?.(WS_EVENT);
         resolveWsInput = null;
       } else if (msg.type === "standby") {
         display.print(display.c.darkGray("  Standby — waiting for tasks..."));
@@ -630,11 +636,9 @@ export async function workerMain() {
     });
 
     ws.on("error", () => { /* close will fire, handled above */ });
-
-    return ws;
   }
 
-  let ws = connectWs();
+  connectWs();
 
   // Main worker loop
   while (true) {
@@ -650,14 +654,17 @@ export async function workerMain() {
     const wsAbort = new Promise<string>((resolve) => { resolveWsInput = resolve; });
     const input = await ask("\n[worker] > ", listCommandNames, wsAbort);
 
-    if (input === "__task_assigned__" && currentIssue) {
+    // Node.js is single-threaded: the ws message handler sets currentIssue
+    // synchronously before calling resolveWsInput, so currentIssue is always
+    // populated by the time ask() resolves with WS_TASK_ASSIGNED.
+    if (input === WS_TASK_ASSIGNED && currentIssue) {
       display.print(display.c.lavender(`  Task assigned: #${currentIssue.number} — ${currentIssue.title}`));
       const prompt = buildInitialPrompt(currentIssue);
       currentSessionId = await runQuery(prompt, currentSessionId);
       continue;
     }
 
-    if (input === "__event__") {
+    if (input === WS_EVENT) {
       // pendingEvents already populated; loop will process them
       continue;
     }
@@ -677,7 +684,9 @@ export async function workerMain() {
 
     if (action.type === "task_complete") {
       if (currentTaskId) {
-        ws.send(JSON.stringify({ type: "task_complete", workerId, taskId: currentTaskId }));
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "task_complete", workerId, taskId: currentTaskId }));
+        }
         currentTaskId = undefined;
         currentIssue = undefined;
         currentSessionId = undefined;
