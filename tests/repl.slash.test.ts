@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSlashCommand, resolveCommandFilePath, loadCommandFile } from "../src/repl.js";
+import { parseSlashCommand, resolveCommandFilePath, loadCommandFile, dispatchInput } from "../src/repl.js";
 
 describe("parseSlashCommand", () => {
   it("returns null for non-slash input", () => {
@@ -35,6 +35,10 @@ describe("parseSlashCommand", () => {
   it("parses command name with colon namespace", () => {
     const result = parseSlashCommand("/foo:bar");
     expect(result).toEqual({ type: "unknown_command", command: "foo:bar" });
+  });
+
+  it("returns task_complete for /task-complete", () => {
+    expect(parseSlashCommand("/task-complete")).toEqual({ type: "task_complete" });
   });
 });
 
@@ -76,5 +80,11 @@ describe("loadCommandFile", () => {
     let capturedPath = "";
     loadCommandFile("foo:bar", (path) => { capturedPath = path; return null; });
     expect(capturedPath).toMatch(/\.claude\/commands\/foo\/bar\.md$/);
+  });
+});
+
+describe("dispatchInput", () => {
+  it("returns task_complete for /task-complete input", async () => {
+    expect(await dispatchInput("/task-complete")).toEqual({ type: "task_complete" });
   });
 });

@@ -61,6 +61,7 @@ const hooks = Object.fromEntries(
 export type SlashCommandResult =
   | { type: "exit" }
   | { type: "clear" }
+  | { type: "task_complete" }
   | { type: "unknown_command"; command: string };
 
 /**
@@ -73,6 +74,7 @@ export function parseSlashCommand(input: string): SlashCommandResult | null {
   if (!command) return null;
   if (command === "exit") return { type: "exit" };
   if (command === "clear") return { type: "clear" };
+  if (command === "task-complete") return { type: "task_complete" };
   return { type: "unknown_command", command };
 }
 
@@ -111,6 +113,7 @@ export type DispatchResult =
   | { type: "skip" }
   | { type: "exit" }
   | { type: "clear" }
+  | { type: "task_complete" }
   | { type: "query"; prompt: string }
   | { type: "unknown_command"; command: string };
 
@@ -127,6 +130,7 @@ export async function dispatchInput(
   const slash = parseSlashCommand(input);
   if (slash) {
     if (slash.type === "exit" || slash.type === "clear") return slash;
+    if (slash.type === "task_complete") return slash;
     // unknown_command: look up file
     const { command } = slash;
     const content = loadCommandFile(command, readFile);
