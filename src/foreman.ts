@@ -146,7 +146,7 @@ export class TaskQueue {
 function ghEnv() {
   return {
     repo:       process.env.GITHUB_REPO ?? "",
-    token:      process.env.GITHUB_TOKEN ?? "",
+    token:      process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "",
     taskLabel:  process.env.TASK_LABEL ?? "brunel:ready",
     doneLabel:  process.env.DONE_LABEL ?? "brunel:done",
   };

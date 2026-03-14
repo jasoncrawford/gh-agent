@@ -26,7 +26,7 @@ npm run worker
 
 Required env vars (in `.env`):
 - `GITHUB_REPO` — e.g. `owner/repo`
-- `GITHUB_TOKEN` — personal access token with `repo` scope
+- `GITHUB_TOKEN` or `GH_TOKEN` — personal access token with `repo` scope (`GH_TOKEN` is already forwarded in the devcontainer)
 - `TASK_LABEL` — label that triggers work (default: `brunel:ready`)
 - `DONE_LABEL` — label applied on completion (default: `brunel:done`)
 - `FOREMAN_URL` — WebSocket URL workers connect to (default: `ws://localhost:3000`)
