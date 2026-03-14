@@ -413,6 +413,10 @@ export function createForemanWss(
   registry: WorkerRegistry,
   server: http.Server,
 ): { wss: WebSocketServer; routeEventToWorker: (id: string, name: string, payload: unknown) => void } {
+  function log(wid: string, line: string) {
+    console.log(`[worker ${wid.slice(0, 8)}] ${line}`);
+  }
+
   function routeEvent(id: string, name: string, payload: unknown) {
     const p = payload as Record<string, unknown>;
     const issue = (p.issue ?? p.pull_request) as Record<string, unknown> | undefined;
@@ -425,8 +429,10 @@ export function createForemanWss(
 
     if (task.status === "assigned" && task.assignedWorkerId) {
       registry.send(task.assignedWorkerId, { type: "event_notification", taskId: task.taskId, event: evt });
+      log(task.assignedWorkerId, `→ event_notification #${issueNumber} ${name}`);
     } else if (task.status === "pending") {
       taskQueue.queueEvent(task.taskId, evt);
+      console.log(`[task #${issueNumber}] ${name} queued (no worker assigned)`);
     }
   }
 
@@ -447,11 +453,14 @@ export function createForemanWss(
           repoUrl: task.repoUrl,
         },
       });
+      log(workerId, `→ task_assigned #${task.issueNumber} "${task.title}"`);
       for (const evt of queued) {
         registry.send(workerId, { type: "event_notification", taskId: task.taskId, event: evt });
+        log(workerId, `→ event_notification #${task.issueNumber} ${evt.name} (queued)`);
       }
     } else {
       registry.send(workerId, { type: "standby" });
+      log(workerId, "→ standby");
     }
   }
 
@@ -471,27 +480,34 @@ export function createForemanWss(
           const existing = taskQueue.get(msg.taskId);
           if (existing && existing.status !== "complete" && (existing.status !== "assigned" || existing.assignedWorkerId === workerId)) {
             // Task is pending/assigned to this worker — reclaim.
+            log(workerId, `hello busy task=#${msg.taskId} — reclaimed`);
             registry.register(workerId, ws, "busy", msg.taskId);
             taskQueue.assignTask(msg.taskId, workerId);
             const queued = taskQueue.drainEvents(msg.taskId);
             for (const evt of queued) {
               registry.send(workerId, { type: "event_notification", taskId: msg.taskId, event: evt });
+              log(workerId, `→ event_notification #${existing.issueNumber} ${evt.name} (queued)`);
             }
           } else if (!existing) {
+            log(workerId, `hello busy task=#${msg.taskId} — unknown task, treating as idle`);
             registry.register(workerId, ws, "idle");
             tryAssignWork(workerId);
           } else {
             // Task is assigned to a different worker — standby
+            log(workerId, `hello busy task=#${msg.taskId} — task taken by another worker`);
             registry.register(workerId, ws, "idle");
             registry.send(workerId, { type: "standby" });
+            log(workerId, "→ standby");
           }
         } else {
+          log(workerId, "hello idle");
           registry.register(workerId, ws, "idle");
           tryAssignWork(workerId);
         }
       }
 
       if (msg.type === "task_complete") {
+        log(workerId, `task_complete #${msg.taskId}`);
         const task = taskQueue.get(msg.taskId);
         if (task) {
           taskQueue.completeTask(msg.taskId);
@@ -505,7 +521,10 @@ export function createForemanWss(
     });
 
     ws.on("close", () => {
-      if (workerId) registry.remove(workerId);
+      if (workerId) {
+        log(workerId, "disconnected");
+        registry.remove(workerId);
+      }
     });
   });
 
