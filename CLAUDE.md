@@ -1,18 +1,36 @@
 # brunel
 
-A GitHub webhook listener that will evolve into a Claude Code agent. It receives GitHub events and prints structured summaries. Eventually it will invoke the Claude Agent SDK in response to events.
+A GitHub-driven autonomous agent. Labels a GitHub issue `brunel:ready` → the foreman picks it up, assigns it to a worker → the worker runs a Claude Agent SDK loop and labels it `brunel:done` when finished.
+
+## Architecture
+
+- **`src/foreman.ts`** — HTTP server + WebSocket server. Polls GitHub for `brunel:ready` issues, queues them, and assigns them to idle workers over WebSocket.
+- **`src/repl.ts`** — Interactive REPL (default) or worker process (`--worker-mode`). Workers connect to the foreman, receive tasks, run Claude Agent SDK sessions, and report completion.
+- **`src/display.ts`** — Shared display/rendering engine used by both foreman and worker.
+- **`src/types.ts`** — Shared types: `WorkerMessage`, `ForemanMessage`, `TaskIssue`, `GitHubEvent`.
 
 ## Dev workflow
 
-Two terminals:
+Three terminals:
 
 ```
 # terminal 1 — proxy GitHub webhooks to localhost
 npx smee-client --url https://smee.io/YOUR_CHANNEL --target http://localhost:3000/webhook
 
-# terminal 2 — run the server
+# terminal 2 — run the foreman
 npm start
+
+# terminal 3 — run a worker
+npm run worker
 ```
+
+Required env vars (in `.env`):
+- `GITHUB_REPO` — e.g. `owner/repo`
+- `GITHUB_TOKEN` — personal access token with `repo` scope
+- `TASK_LABEL` — label that triggers work (default: `brunel:ready`)
+- `DONE_LABEL` — label applied on completion (default: `brunel:done`)
+- `FOREMAN_URL` — WebSocket URL workers connect to (default: `ws://localhost:3000`)
+- `ANTHROPIC_API_KEY` — for Claude Agent SDK
 
 ## Git workflow
 
