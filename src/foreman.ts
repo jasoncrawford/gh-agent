@@ -190,6 +190,13 @@ export async function labelIssueDone(issueNumber: number): Promise<void> {
   if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
 }
 
+// ── Module-level wiring ───────────────────────────────────────────────────────
+
+const registry = new WorkerRegistry();
+const taskQueue = new TaskQueue();
+// Placeholder — assigned synchronously by createForemanWss before any requests arrive
+let routeEventToWorker: (id: string, name: string, payload: unknown) => void = () => {};
+
 // ── Webhook handler ───────────────────────────────────────────────────────────
 
 const webhooks = WEBHOOK_SECRET ? new Webhooks({ secret: WEBHOOK_SECRET }) : null;
@@ -399,125 +406,125 @@ const server = http.createServer(async (req, res) => {
   res.end("Not Found");
 });
 
-// ── WebSocket server ──────────────────────────────────────────────────────────
+// ── WebSocket server factory ──────────────────────────────────────────────────
 
-const wss = new WebSocketServer({ noServer: true });
-const registry = new WorkerRegistry();
-const taskQueue = new TaskQueue();
+export function createForemanWss(
+  taskQueue: TaskQueue,
+  registry: WorkerRegistry,
+  server: http.Server,
+): { wss: WebSocketServer; routeEventToWorker: (id: string, name: string, payload: unknown) => void } {
+  function routeEvent(id: string, name: string, payload: unknown) {
+    const p = payload as Record<string, unknown>;
+    const issue = (p.issue ?? p.pull_request) as Record<string, unknown> | undefined;
+    const issueNumber = typeof issue?.number === "number" ? issue.number : null;
+    if (issueNumber === null) return;
 
-function routeEventToWorker(id: string, name: string, payload: unknown) {
-  const p = payload as Record<string, unknown>;
-  const issue = (p.issue ?? p.pull_request) as Record<string, unknown> | undefined;
-  const issueNumber = typeof issue?.number === "number" ? issue.number : null;
-  if (issueNumber === null) return;
+    const evt: GitHubEvent = { id, name, payload: p };
+    const task = taskQueue.getTaskForIssue(issueNumber);
+    if (!task) return;
 
-  const evt: GitHubEvent = { id, name, payload: p };
-  const task = taskQueue.getTaskForIssue(issueNumber);
-  if (!task) return;
-
-  if (task.status === "assigned" && task.assignedWorkerId) {
-    registry.send(task.assignedWorkerId, { type: "event_notification", taskId: task.taskId, event: evt });
-  } else if (task.status === "pending") {
-    taskQueue.queueEvent(task.taskId, evt);
-  }
-}
-
-function tryAssignWork(workerId: string) {
-  const task = taskQueue.nextPending();
-  if (task) {
-    taskQueue.assignTask(task.taskId, workerId);
-    registry.assignTask(workerId, task.taskId);
-    // Forward any pre-queued events
-    const queued = taskQueue.drainEvents(task.taskId);
-    registry.send(workerId, {
-      type: "task_assigned",
-      taskId: task.taskId,
-      issue: {
-        number: task.issueNumber,
-        title: task.title,
-        body: task.body,
-        labels: task.labels,
-        repoUrl: task.repoUrl,
-      },
-    });
-    for (const evt of queued) {
-      registry.send(workerId, { type: "event_notification", taskId: task.taskId, event: evt });
+    if (task.status === "assigned" && task.assignedWorkerId) {
+      registry.send(task.assignedWorkerId, { type: "event_notification", taskId: task.taskId, event: evt });
+    } else if (task.status === "pending") {
+      taskQueue.queueEvent(task.taskId, evt);
     }
-  } else {
-    registry.send(workerId, { type: "standby" });
   }
-}
 
-wss.on("connection", (ws) => {
-  let workerId = "";
+  function tryAssignWork(workerId: string) {
+    const task = taskQueue.nextPending();
+    if (task) {
+      taskQueue.assignTask(task.taskId, workerId);
+      registry.assignTask(workerId, task.taskId);
+      const queued = taskQueue.drainEvents(task.taskId);
+      registry.send(workerId, {
+        type: "task_assigned",
+        taskId: task.taskId,
+        issue: {
+          number: task.issueNumber,
+          title: task.title,
+          body: task.body,
+          labels: task.labels,
+          repoUrl: task.repoUrl,
+        },
+      });
+      for (const evt of queued) {
+        registry.send(workerId, { type: "event_notification", taskId: task.taskId, event: evt });
+      }
+    } else {
+      registry.send(workerId, { type: "standby" });
+    }
+  }
 
-  ws.on("message", (data) => {
-    let msg: WorkerMessage;
-    try { msg = JSON.parse(data.toString()); } catch { return; }
+  const wss = new WebSocketServer({ noServer: true });
 
-    if (msg.type === "worker_hello") {
-      workerId = msg.workerId;
+  wss.on("connection", (ws) => {
+    let workerId = "";
 
-      if (msg.status === "busy" && msg.taskId) {
-        // Reconnecting worker claiming its task
-        const existing = taskQueue.get(msg.taskId);
-        if (existing && existing.status !== "assigned") {
-          // Task is free — worker reclaims it.
-          // No task_assigned is sent here: the worker already knows its task (it sent the taskId),
-          // and sending task_assigned would reset the worker's in-progress session. Queued events
-          // (if any) serve as implicit confirmation that the reconnect was accepted.
-          registry.register(workerId, ws, "busy", msg.taskId);
-          taskQueue.assignTask(msg.taskId, workerId);
-          // Forward any queued events
-          const queued = taskQueue.drainEvents(msg.taskId);
-          for (const evt of queued) {
-            registry.send(workerId, { type: "event_notification", taskId: msg.taskId, event: evt });
+    ws.on("message", (data) => {
+      let msg: WorkerMessage;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+
+      if (msg.type === "worker_hello") {
+        workerId = msg.workerId;
+
+        if (msg.status === "busy" && msg.taskId) {
+          const existing = taskQueue.get(msg.taskId);
+          if (existing && (existing.status !== "assigned" || existing.assignedWorkerId === workerId)) {
+            // Task is free, or this is the worker that owns it — reclaim.
+            registry.register(workerId, ws, "busy", msg.taskId);
+            taskQueue.assignTask(msg.taskId, workerId);
+            const queued = taskQueue.drainEvents(msg.taskId);
+            for (const evt of queued) {
+              registry.send(workerId, { type: "event_notification", taskId: msg.taskId, event: evt });
+            }
+          } else if (!existing) {
+            registry.register(workerId, ws, "idle");
+            tryAssignWork(workerId);
+          } else {
+            // Task is assigned to a different worker — standby
+            registry.register(workerId, ws, "idle");
+            registry.send(workerId, { type: "standby" });
           }
-        } else if (!existing) {
-          // Task unknown (e.g. completed while disconnected) — treat as idle
+        } else {
           registry.register(workerId, ws, "idle");
           tryAssignWork(workerId);
-        } else {
-          // Task already assigned to another worker — standby
-          registry.register(workerId, ws, "idle");
-          registry.send(workerId, { type: "standby" });
         }
-      } else {
-        registry.register(workerId, ws, "idle");
+      }
+
+      if (msg.type === "task_complete") {
+        const task = taskQueue.get(msg.taskId);
+        if (task) {
+          taskQueue.completeTask(msg.taskId);
+          labelIssueDone(task.issueNumber).catch(err =>
+            console.error("Failed to label issue done:", err)
+          );
+        }
+        registry.releaseWorker(workerId);
         tryAssignWork(workerId);
       }
-    }
+    });
 
-    if (msg.type === "task_complete") {
-      const task = taskQueue.get(msg.taskId);
-      if (task) {
-        taskQueue.completeTask(msg.taskId);
-        labelIssueDone(task.issueNumber).catch(err =>
-          console.error("Failed to label issue done:", err)
-        );
-      }
-      registry.releaseWorker(workerId);
-      tryAssignWork(workerId);
+    ws.on("close", () => {
+      if (workerId) registry.remove(workerId);
+    });
+  });
+
+  server.on("upgrade", (req, socket, head) => {
+    if (req.url === "/worker") {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    } else {
+      socket.destroy();
     }
   });
 
-  ws.on("close", () => {
-    if (workerId) registry.remove(workerId);
-  });
-});
-
-server.on("upgrade", (req, socket, head) => {
-  if (req.url === "/worker") {
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-  } else {
-    socket.destroy();
-  }
-});
+  return { wss, routeEventToWorker: routeEvent };
+}
 
 // Only start listening when run directly (not when imported by tests)
 import { fileURLToPath } from "url";
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
+  ({ routeEventToWorker } = createForemanWss(taskQueue, registry, server));
   server.listen(PORT, async () => {
     console.log(`\nListening on http://localhost:${PORT}/webhook`);
     console.log("WebSocket workers: ws://localhost:" + PORT + "/worker");
