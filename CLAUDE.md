@@ -30,7 +30,7 @@ Required env vars (in `.env`):
 - `TASK_LABEL` — label that triggers work (default: `brunel:ready`)
 - `DONE_LABEL` — label applied on completion (default: `brunel:done`)
 - `FOREMAN_URL` — WebSocket URL workers connect to (default: `ws://localhost:3000`)
-- `ANTHROPIC_API_KEY` — for Claude Agent SDK
+- `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` — for Claude Agent SDK (the OAuth token is used automatically if you're running inside Claude Code)
 
 ## Git workflow
 
