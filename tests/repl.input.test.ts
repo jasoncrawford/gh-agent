@@ -364,6 +364,19 @@ describe("ask() - bracketed paste", () => {
   });
 });
 
+describe("ask() - abort parameter", () => {
+  it("resolves with abort value when abort promise fires first", async () => {
+    const stdin = makeStdin();
+    Object.defineProperty(process, "stdin", { value: stdin, configurable: true });
+    let resolveAbort!: (v: string) => void;
+    const abort = new Promise<string>((r) => { resolveAbort = r; });
+    const result = ask("> ", undefined, abort);
+    // Fire abort before any stdin input
+    resolveAbort("__abort__");
+    expect(await result).toBe("__abort__");
+  });
+});
+
 describe("ask() - word movement detail", () => {
   it("moveWordLeft: 'foo bar|' → 'foo |bar'", async () => {
     await withFakeStdin(async (stdin) => {

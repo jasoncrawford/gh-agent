@@ -269,7 +269,11 @@ export async function runQuery(prompt: string, sessionId: string | undefined) {
 // (\x1b[200~ ... \x1b[201~), letting us collect it as a single input
 // rather than having each newline submit a separate prompt.
 
-export function ask(promptStr: string, getCommands: () => string[] = () => listCommandNames()): Promise<string> {
+export function ask(
+  promptStr: string,
+  getCommands: () => string[] = () => listCommandNames(),
+  abort?: Promise<string>,
+): Promise<string> {
   return new Promise((resolve) => {
     let buffer = "";
     let pasteBuffer = "";
@@ -282,6 +286,16 @@ export function ask(promptStr: string, getCommands: () => string[] = () => listC
     try { commands = getCommands(); } catch { /* graceful: use empty */ }
 
     process.stdout.write(promptStr);
+
+    if (abort) {
+      abort.then((value) => {
+        if (!done) {
+          // Clear current line and submit the abort value
+          process.stdout.write("\r\x1b[K");
+          submit(value);
+        }
+      });
+    }
 
     function submit(value: string) {
       if (done) return;
