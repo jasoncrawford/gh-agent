@@ -3,6 +3,8 @@ import { stripAnsi } from "./helpers.js";
 import {
   trunc,
   fmtCount,
+  fmtDuration,
+  fmtNum,
   fmtStats,
   fmtArgs,
   toolResultText,
@@ -68,6 +70,54 @@ describe("fmtCount", () => {
   });
 });
 
+describe("fmtDuration", () => {
+  it("seconds only when less than 60", () => {
+    expect(fmtDuration(30)).toBe("30s");
+  });
+
+  it("exactly 59 seconds stays as seconds", () => {
+    expect(fmtDuration(59)).toBe("59s");
+  });
+
+  it("exactly 60 seconds is 1m0s", () => {
+    expect(fmtDuration(60)).toBe("1m0s");
+  });
+
+  it("630 seconds is 10m30s", () => {
+    expect(fmtDuration(630)).toBe("10m30s");
+  });
+
+  it("0 seconds is 0s", () => {
+    expect(fmtDuration(0)).toBe("0s");
+  });
+
+  it("3661 seconds is 61m1s", () => {
+    expect(fmtDuration(3661)).toBe("61m1s");
+  });
+});
+
+describe("fmtNum", () => {
+  it("numbers under 1000 shown as-is", () => {
+    expect(fmtNum(999)).toBe("999");
+  });
+
+  it("exactly 1000 is 1k", () => {
+    expect(fmtNum(1000)).toBe("1k");
+  });
+
+  it("31026 is 31k", () => {
+    expect(fmtNum(31026)).toBe("31k");
+  });
+
+  it("rounds down (floor)", () => {
+    expect(fmtNum(1999)).toBe("1k");
+  });
+
+  it("0 is 0", () => {
+    expect(fmtNum(0)).toBe("0");
+  });
+});
+
 describe("fmtStats", () => {
   it("just seconds", () => {
     expect(fmtStats(5)).toBe("5s");
@@ -95,6 +145,14 @@ describe("fmtStats", () => {
 
   it("undefined turns, output tokens shown", () => {
     expect(fmtStats(5, undefined, 100, 0)).toBe("5s, tokens: 0 in / 100 out");
+  });
+
+  it("large token counts use k suffix", () => {
+    expect(fmtStats(5, 2, 31026, 12)).toBe("5s, 2 turns, tokens: 12 in / 31k out");
+  });
+
+  it("large duration uses minutes format", () => {
+    expect(fmtStats(630, 9, 31026, 12)).toBe("10m30s, 9 turns, tokens: 12 in / 31k out");
   });
 });
 

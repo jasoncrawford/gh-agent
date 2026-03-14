@@ -44,11 +44,23 @@ export function fmtCount(count: number, singular_noun: string, plural_noun?: str
   return `${count} ${noun}`;
 }
 
+export function fmtDuration(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}m${s}s`;
+}
+
+export function fmtNum(n: number): string {
+  if (n >= 1000) return `${Math.floor(n / 1000)}k`;
+  return `${n}`;
+}
+
 export function fmtStats(secs: number, turns?: number, outputTokens?: number, inputTokens?: number): string {
-  const parts: string[] = [`${secs}s`];
+  const parts: string[] = [fmtDuration(secs)];
   if (turns) parts.push(fmtCount(turns, "turn"));
   if (outputTokens) {
-    const tok = inputTokens != null ? `tokens: ${inputTokens} in / ${outputTokens} out` : `tokens: ${outputTokens} out`;
+    const tok = inputTokens != null ? `tokens: ${fmtNum(inputTokens)} in / ${fmtNum(outputTokens)} out` : `tokens: ${fmtNum(outputTokens)} out`;
     parts.push(tok);
   }
   return parts.join(", ");
