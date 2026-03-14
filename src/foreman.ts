@@ -469,8 +469,8 @@ export function createForemanWss(
 
         if (msg.status === "busy" && msg.taskId) {
           const existing = taskQueue.get(msg.taskId);
-          if (existing && (existing.status !== "assigned" || existing.assignedWorkerId === workerId)) {
-            // Task is free, or this is the worker that owns it — reclaim.
+          if (existing && existing.status !== "complete" && (existing.status !== "assigned" || existing.assignedWorkerId === workerId)) {
+            // Task is pending/assigned to this worker — reclaim.
             registry.register(workerId, ws, "busy", msg.taskId);
             taskQueue.assignTask(msg.taskId, workerId);
             const queued = taskQueue.drainEvents(msg.taskId);

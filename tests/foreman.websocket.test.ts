@@ -262,4 +262,17 @@ describe("foreman WebSocket protocol", () => {
     expect(await reply).toEqual({ type: "standby" });
     expect(queue.get("1")?.status).toBe("complete");
   });
+
+  it("worker reconnects as busy with a completed taskId gets standby", async () => {
+    queue.addTask(makeTask(1));
+    // Mark task as complete directly (simulates another path completing it while worker was disconnected)
+    queue.assignTask("1", "w1");
+    queue.completeTask("1");
+
+    const ws = await connect();
+    const reply = nextMsg(ws);
+    send(ws, { type: "worker_hello", workerId: "w1", taskId: "1", status: "busy" });
+    expect(await reply).toEqual({ type: "standby" });
+    expect(registry.get("w1")?.status).toBe("idle");
+  });
 });
