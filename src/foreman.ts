@@ -520,12 +520,11 @@ export function createForemanWss(
   return { wss, routeEventToWorker: routeEvent };
 }
 
-({ routeEventToWorker } = createForemanWss(taskQueue, registry, server));
-
 // Only start listening when run directly (not when imported by tests)
 import { fileURLToPath } from "url";
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
+  ({ routeEventToWorker } = createForemanWss(taskQueue, registry, server));
   server.listen(PORT, async () => {
     console.log(`\nListening on http://localhost:${PORT}/webhook`);
     console.log("WebSocket workers: ws://localhost:" + PORT + "/worker");
