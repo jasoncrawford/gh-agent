@@ -510,13 +510,18 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-server.listen(PORT, async () => {
-  console.log(`\nListening on http://localhost:${PORT}/webhook`);
-  console.log("WebSocket workers: ws://localhost:" + PORT + "/worker");
-  console.log("Waiting for events...\n");
-  try {
-    await loadIssuesToQueue(taskQueue);
-  } catch (err) {
-    console.error("Warning: failed to load issues from GitHub:", err);
-  }
-});
+// Only start listening when run directly (not when imported by tests)
+import { fileURLToPath } from "url";
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  server.listen(PORT, async () => {
+    console.log(`\nListening on http://localhost:${PORT}/webhook`);
+    console.log("WebSocket workers: ws://localhost:" + PORT + "/worker");
+    console.log("Waiting for events...\n");
+    try {
+      await loadIssuesToQueue(taskQueue);
+    } catch (err) {
+      console.error("Warning: failed to load issues from GitHub:", err);
+    }
+  });
+}
