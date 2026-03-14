@@ -568,6 +568,10 @@ async function main() {
 
 // ── Worker mode ───────────────────────────────────────────────────────────────
 
+export function buildWorkerWsUrl(foremanUrl: string): string {
+  return `${foremanUrl}/worker`;
+}
+
 export async function workerMain() {
   const FOREMAN_URL = process.env.FOREMAN_URL ?? "ws://localhost:3000";
   const workerId = getWorkerId();
@@ -599,7 +603,7 @@ export async function workerMain() {
   let ws: WebSocket;
 
   function connectWs(): void {
-    ws = new WebSocket(FOREMAN_URL);
+    ws = new WebSocket(buildWorkerWsUrl(FOREMAN_URL));
 
     ws.on("message", (data) => {
       let msg: ForemanMessage;
