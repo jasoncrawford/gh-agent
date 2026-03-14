@@ -182,11 +182,12 @@ export async function loadIssuesToQueue(queue: TaskQueue): Promise<void> {
 export async function labelIssueDone(issueNumber: number): Promise<void> {
   const { repo, token, doneLabel } = ghEnv();
   const [owner, repoName] = repo.split("/");
-  await fetch(`https://api.github.com/repos/${owner}/${repoName}/issues/${issueNumber}/labels`, {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repoName}/issues/${issueNumber}/labels`, {
     method: "POST",
     headers: { ...ghHeaders(token), "Content-Type": "application/json" },
     body: JSON.stringify({ labels: [doneLabel] }),
   });
+  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
 }
 
 // ── Webhook handler ───────────────────────────────────────────────────────────
@@ -461,7 +462,10 @@ wss.on("connection", (ws) => {
         // Reconnecting worker claiming its task
         const existing = taskQueue.get(msg.taskId);
         if (existing && existing.status !== "assigned") {
-          // Task is free — worker reclaims it
+          // Task is free — worker reclaims it.
+          // No task_assigned is sent here: the worker already knows its task (it sent the taskId),
+          // and sending task_assigned would reset the worker's in-progress session. Queued events
+          // (if any) serve as implicit confirmation that the reconnect was accepted.
           registry.register(workerId, ws, "busy", msg.taskId);
           taskQueue.assignTask(msg.taskId, workerId);
           // Forward any queued events

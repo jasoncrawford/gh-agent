@@ -51,7 +51,15 @@ describe("labelIssueDone", () => {
     await labelIssueDone(42);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("owner/repo/issues/42/labels"),
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ labels: ["brunel:done"] }),
+      }),
     );
+  });
+
+  it("throws on non-ok response", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 422 } as any);
+    await expect(labelIssueDone(42)).rejects.toThrow("422");
   });
 });
