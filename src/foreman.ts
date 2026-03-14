@@ -413,7 +413,7 @@ export function createForemanWss(
   registry: WorkerRegistry,
   server: http.Server,
 ): { wss: WebSocketServer; routeEventToWorker: (id: string, name: string, payload: unknown) => void } {
-  function routeEventToWorker(id: string, name: string, payload: unknown) {
+  function routeEvent(id: string, name: string, payload: unknown) {
     const p = payload as Record<string, unknown>;
     const issue = (p.issue ?? p.pull_request) as Record<string, unknown> | undefined;
     const issueNumber = typeof issue?.number === "number" ? issue.number : null;
@@ -515,7 +515,7 @@ export function createForemanWss(
     }
   });
 
-  return { wss, routeEventToWorker };
+  return { wss, routeEventToWorker: routeEvent };
 }
 
 ({ routeEventToWorker } = createForemanWss(taskQueue, registry, server));
