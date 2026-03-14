@@ -568,6 +568,24 @@ async function main() {
 
 // ── Worker mode ───────────────────────────────────────────────────────────────
 
+/**
+ * Create a WebSocket connection to the foreman at the /worker path and send
+ * the initial worker_hello handshake. Returns the WebSocket for the caller to
+ * attach message/close/error handlers.
+ */
+export function connectToForeman(foremanUrl: string, workerId: string, taskId?: string): WebSocket {
+  const ws = new WebSocket(`${foremanUrl}/worker`);
+  ws.on("open", () => {
+    ws.send(JSON.stringify({
+      type: "worker_hello",
+      workerId,
+      taskId,
+      status: taskId ? "busy" : "idle",
+    }));
+  });
+  return ws;
+}
+
 export async function workerMain() {
   const FOREMAN_URL = process.env.FOREMAN_URL ?? "ws://localhost:3000";
   const workerId = getWorkerId();
@@ -599,7 +617,11 @@ export async function workerMain() {
   let ws: WebSocket;
 
   function connectWs(): void {
-    ws = new WebSocket(FOREMAN_URL);
+    ws = connectToForeman(FOREMAN_URL, workerId, currentTaskId);
+
+    ws.on("open", () => {
+      display.print(display.c.sageGreen("  Connected to foreman."));
+    });
 
     ws.on("message", (data) => {
       let msg: ForemanMessage;
@@ -618,16 +640,6 @@ export async function workerMain() {
       } else if (msg.type === "standby") {
         display.print(display.c.darkGray("  Standby — waiting for tasks..."));
       }
-    });
-
-    ws.on("open", () => {
-      display.print(display.c.sageGreen("  Connected to foreman."));
-      ws.send(JSON.stringify({
-        type: "worker_hello",
-        workerId,
-        taskId: currentTaskId,
-        status: currentTaskId ? "busy" : "idle",
-      }));
     });
 
     ws.on("close", () => {
