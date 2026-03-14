@@ -1,12 +1,7 @@
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { query, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import {
-  W, hr, VERBOSE, setVerbose, c, s,
-  trunc, fmtCount, fmtStats, fmtArgs,
-  startStatus, stopStatus, print,
-  toolUseNames, printMessage, printHook,
-} from "./display.js";
+import * as display from "./display.js";
 export * from "./display.js";
 
 // ── Log file ──────────────────────────────────────────────────────────────────
@@ -28,7 +23,7 @@ export function logFull(label: string, data: unknown) {
 function makeHook(event: string): HookCallback {
   return async (input) => {
     logFull(`HOOK ${event}`, input);
-    printHook(event, input);
+    display.printHook(event, input);
     return {};
   };
 }
@@ -211,10 +206,10 @@ export async function runQuery(prompt: string, sessionId: string | undefined) {
   // message_delta.usage.output_tokens is cumulative per message, so we sum
   // completed messages and track the current one separately.
   const stats = { turns: 0, inputTokens: 0, completedOutputTokens: 0, currentOutputTokens: 0 };
-  startStatus(() => {
+  display.startStatus(() => {
     const secs = Math.floor((Date.now() - startTime) / 1000);
     const outTokens = stats.completedOutputTokens + stats.currentOutputTokens;
-    return c.darkGray(`Working… ${fmtStats(secs, stats.turns || undefined, outTokens || undefined, stats.inputTokens || undefined)}`);
+    return display.c.darkGray(`Working… ${display.fmtStats(secs, stats.turns || undefined, outTokens || undefined, stats.inputTokens || undefined)}`);
   });
 
   let capturedSessionId = sessionId;
@@ -255,12 +250,12 @@ export async function runQuery(prompt: string, sessionId: string | undefined) {
 
     // Stop the status line before printing the result so it transitions
     // cleanly into the permanent summary line.
-    if (m.type === "result") stopStatus();
+    if (m.type === "result") display.stopStatus();
 
-    printMessage(message);
+    display.printMessage(message);
   }
 
-  stopStatus(); // no-op if result message already stopped it
+  display.stopStatus(); // no-op if result message already stopped it
   return capturedSessionId;
 }
 
@@ -315,7 +310,7 @@ export function ask(promptStr: string, getCommands: () => string[] = () => listC
       if (fromEnd > 0) process.stdout.write(`\x1b[${fromEnd}C`);
       process.stdout.write("\r\n\x1b[K");
       if (matches.length > 0) {
-        process.stdout.write(c.darkGray("  " + matches.map(m => "/" + m).join("  ")));
+        process.stdout.write(display.c.darkGray("  " + matches.map(m => "/" + m).join("  ")));
       }
       process.stdout.write("\x1b[A\r");
       const fwd = promptVisualLen + cursor;
@@ -509,11 +504,11 @@ async function main() {
 
   let sessionId: string | undefined;
 
-  print(c.sageGreen(hr("═")));
-  print(c.skyBlue(s.bold("  Claude Agent SDK REPL")));
-  print(c.lavender(`  Permissions: ${PERMISSION_MODE} | Output: ${VERBOSE ? "verbose" : "quiet"} | Log: ${LOG_FILE}`));
-  print(c.lavender(`  Type /exit to quit, /clear to start a new session.`));
-  print(c.sageGreen(hr("═")));
+  display.print(display.c.sageGreen(display.hr("═")));
+  display.print(display.c.skyBlue(display.s.bold("  Claude Agent SDK REPL")));
+  display.print(display.c.lavender(`  Permissions: ${PERMISSION_MODE} | Output: ${display.VERBOSE ? "verbose" : "quiet"} | Log: ${LOG_FILE}`));
+  display.print(display.c.lavender(`  Type /exit to quit, /clear to start a new session.`));
+  display.print(display.c.sageGreen(display.hr("═")));
 
   while (true) {
     const input = await ask("\n> ");
@@ -531,19 +526,19 @@ async function main() {
 
     if (action.type === "clear") {
       sessionId = undefined;
-      print("Session cleared.");
+      display.print("Session cleared.");
       continue;
     }
 
     if (action.type === "unknown_command") {
-      print(c.boldRed(`Unknown command: /${action.command}`));
+      display.print(display.c.boldRed(`Unknown command: /${action.command}`));
       continue;
     }
 
     try {
       sessionId = await runQuery(action.prompt, sessionId);
     } catch (err) {
-      console.error(c.boldRed(`\nERROR: ${err}`));
+      console.error(display.c.boldRed(`\nERROR: ${err}`));
       logFull("ERROR", err instanceof Error ? { message: err.message, stack: err.stack } : err);
     }
   }
