@@ -3,6 +3,10 @@ import { fileURLToPath } from "url";
 import { query, type HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import * as display from "./display.js";
 export * from "./display.js";
+import { WebSocket } from "ws";
+import { getWorkerId } from "./worker-id.js";
+import { buildInitialPrompt, buildEventPrompt } from "./templates.js";
+import type { ForemanMessage, GitHubEvent, TaskIssue } from "./types.js";
 
 // ── Log file ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +65,7 @@ const hooks = Object.fromEntries(
 export type SlashCommandResult =
   | { type: "exit" }
   | { type: "clear" }
+  | { type: "task_complete" }
   | { type: "unknown_command"; command: string };
 
 /**
@@ -73,6 +78,7 @@ export function parseSlashCommand(input: string): SlashCommandResult | null {
   if (!command) return null;
   if (command === "exit") return { type: "exit" };
   if (command === "clear") return { type: "clear" };
+  if (command === "task-complete") return { type: "task_complete" };
   return { type: "unknown_command", command };
 }
 
@@ -111,6 +117,7 @@ export type DispatchResult =
   | { type: "skip" }
   | { type: "exit" }
   | { type: "clear" }
+  | { type: "task_complete" }
   | { type: "query"; prompt: string }
   | { type: "unknown_command"; command: string };
 
@@ -127,6 +134,7 @@ export async function dispatchInput(
   const slash = parseSlashCommand(input);
   if (slash) {
     if (slash.type === "exit" || slash.type === "clear") return slash;
+    if (slash.type === "task_complete") return slash;
     // unknown_command: look up file
     const { command } = slash;
     const content = loadCommandFile(command, readFile);
@@ -265,7 +273,11 @@ export async function runQuery(prompt: string, sessionId: string | undefined) {
 // (\x1b[200~ ... \x1b[201~), letting us collect it as a single input
 // rather than having each newline submit a separate prompt.
 
-export function ask(promptStr: string, getCommands: () => string[] = () => listCommandNames()): Promise<string> {
+export function ask(
+  promptStr: string,
+  getCommands: () => string[] = () => listCommandNames(),
+  abort?: Promise<string>,
+): Promise<string> {
   return new Promise((resolve) => {
     let buffer = "";
     let pasteBuffer = "";
@@ -278,6 +290,16 @@ export function ask(promptStr: string, getCommands: () => string[] = () => listC
     try { commands = getCommands(); } catch { /* graceful: use empty */ }
 
     process.stdout.write(promptStr);
+
+    if (abort) {
+      abort.then((value) => {
+        if (!done) {
+          // Clear current line and submit the abort value
+          process.stdout.write("\r\x1b[K");
+          submit(value);
+        }
+      });
+    }
 
     function submit(value: string) {
       if (done) return;
@@ -544,4 +566,160 @@ async function main() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) { main(); }
+// ── Worker mode ───────────────────────────────────────────────────────────────
+
+export async function workerMain() {
+  const FOREMAN_URL = process.env.FOREMAN_URL ?? "ws://localhost:3000";
+  const workerId = getWorkerId();
+
+  // Local event queue — populated by the ws message handler even during runQuery()
+  const pendingEvents: GitHubEvent[] = [];
+  let currentTaskId: string | undefined;
+  let currentSessionId: string | undefined;
+  let currentIssue: TaskIssue | undefined;
+
+  // Sentinel values used to signal WebSocket events through ask()'s abort param
+  const WS_TASK_ASSIGNED = "__task_assigned__";
+  const WS_EVENT = "__event__";
+
+  // Signalling: when the worker is waiting at the prompt, a WebSocket event
+  // can resolve this to interrupt ask() and process the event.
+  let resolveWsInput: ((v: string) => void) | null = null;
+
+  process.stdout.write("\x1b[?2004h");
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+
+  display.print(display.c.sageGreen(display.hr("═")));
+  display.print(display.c.skyBlue(display.s.bold("  Brunel Worker")));
+  display.print(display.c.lavender(`  Worker ID: ${workerId} | Foreman: ${FOREMAN_URL}`));
+  display.print(display.c.sageGreen(display.hr("═")));
+
+  let ws: WebSocket;
+
+  function connectWs(): void {
+    ws = new WebSocket(FOREMAN_URL);
+
+    ws.on("message", (data) => {
+      let msg: ForemanMessage;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+
+      if (msg.type === "task_assigned") {
+        currentTaskId = msg.taskId;
+        currentIssue = msg.issue;
+        currentSessionId = undefined;
+        resolveWsInput?.(WS_TASK_ASSIGNED);
+        resolveWsInput = null;
+      } else if (msg.type === "event_notification") {
+        pendingEvents.push(msg.event);
+        resolveWsInput?.(WS_EVENT);
+        resolveWsInput = null;
+      } else if (msg.type === "standby") {
+        display.print(display.c.darkGray("  Standby — waiting for tasks..."));
+      }
+    });
+
+    ws.on("open", () => {
+      display.print(display.c.sageGreen("  Connected to foreman."));
+      ws.send(JSON.stringify({
+        type: "worker_hello",
+        workerId,
+        taskId: currentTaskId,
+        status: currentTaskId ? "busy" : "idle",
+      }));
+    });
+
+    ws.on("close", () => {
+      display.print(display.c.amber("  Disconnected from foreman. Reconnecting..."));
+      setTimeout(() => connectWs(), 3000);
+    });
+
+    ws.on("error", () => { /* close will fire, handled above */ });
+  }
+
+  connectWs();
+
+  // Main worker loop
+  while (true) {
+    // If we have pending events after a query, process them immediately
+    if (pendingEvents.length > 0 && currentTaskId && currentIssue) {
+      const events = pendingEvents.splice(0);
+      const prompt = buildEventPrompt(events);
+      currentSessionId = await runQuery(prompt, currentSessionId);
+      continue;
+    }
+
+    // Wait for next input: user stdin or WebSocket signal
+    const wsAbort = new Promise<string>((resolve) => { resolveWsInput = resolve; });
+    const input = await ask("\n[worker] > ", listCommandNames, wsAbort);
+
+    // Node.js is single-threaded: the ws message handler sets currentIssue
+    // synchronously before calling resolveWsInput, so currentIssue is always
+    // populated by the time ask() resolves with WS_TASK_ASSIGNED.
+    if (input === WS_TASK_ASSIGNED && currentIssue) {
+      display.print(display.c.lavender(`  Task assigned: #${currentIssue.number} — ${currentIssue.title}`));
+      const prompt = buildInitialPrompt(currentIssue);
+      currentSessionId = await runQuery(prompt, currentSessionId);
+      continue;
+    }
+
+    if (input === WS_EVENT) {
+      // pendingEvents already populated; loop will process them
+      continue;
+    }
+
+    if (!input || input === "__abort__") continue;
+
+    const action = await dispatchInput(input);
+    if (action.type === "skip") continue;
+
+    if (action.type === "exit") {
+      process.stdout.write("\x1b[?2004l\r\n");
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      ws.close();
+      break;
+    }
+
+    if (action.type === "task_complete") {
+      if (currentTaskId) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "task_complete", workerId, taskId: currentTaskId }));
+        }
+        currentTaskId = undefined;
+        currentIssue = undefined;
+        currentSessionId = undefined;
+        display.print(display.c.sageGreen("  Task complete. Waiting for next task..."));
+      }
+      continue;
+    }
+
+    if (action.type === "clear") {
+      currentSessionId = undefined;
+      display.print("Session cleared.");
+      continue;
+    }
+
+    if (action.type === "unknown_command") {
+      display.print(display.c.boldRed(`Unknown command: /${action.command}`));
+      continue;
+    }
+
+    if (action.type === "query") {
+      try {
+        currentSessionId = await runQuery(action.prompt, currentSessionId);
+      } catch (err) {
+        display.print(display.c.boldRed(`\nERROR: ${err}`));
+      }
+    }
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  if (process.argv.includes("--worker-mode")) {
+    workerMain();
+  } else {
+    main();
+  }
+}
