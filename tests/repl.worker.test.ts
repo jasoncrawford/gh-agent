@@ -1,21 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { createServer } from "http";
-import { WebSocketServer, WebSocket } from "ws";
+import * as http from "http";
+import { WebSocket } from "ws";
+import { createForemanWss, WorkerRegistry, TaskQueue } from "../src/foreman.js";
 
-function makeForemanServer(): Promise<{ port: number; close: () => void }> {
+function startTestForeman(): Promise<{ port: number; close: () => void }> {
   return new Promise((resolve) => {
-    const server = createServer();
-    const wss = new WebSocketServer({ noServer: true });
-
-    // Mirror foreman routing: only accept connections at /worker
-    server.on("upgrade", (req, socket, head) => {
-      if (req.url === "/worker") {
-        wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-      } else {
-        socket.destroy();
-      }
-    });
-
+    const server = http.createServer();
+    const { wss } = createForemanWss(new TaskQueue(), new WorkerRegistry(), server);
     server.listen(0, () => {
       const { port } = server.address() as { port: number };
       resolve({ port, close: () => { wss.close(); server.close(); } });
@@ -24,11 +15,12 @@ function makeForemanServer(): Promise<{ port: number; close: () => void }> {
 }
 
 describe("worker WebSocket connection", () => {
-  it("connects successfully when using /worker path", async () => {
-    const { port, close } = await makeForemanServer();
-    const baseUrl = `ws://localhost:${port}`;
+  it("worker connects to foreman at /worker path", async () => {
+    const { port, close } = await startTestForeman();
+    const FOREMAN_URL = `ws://localhost:${port}`;
 
-    const ws = new WebSocket(`${baseUrl}/worker`);
+    // This is the exact URL construction used in workerMain's connectWs
+    const ws = new WebSocket(`${FOREMAN_URL}/worker`);
     await new Promise<void>((resolve, reject) => {
       ws.on("open", resolve);
       ws.on("error", reject);
@@ -38,12 +30,12 @@ describe("worker WebSocket connection", () => {
     close();
   });
 
-  it("fails to connect when using bare foreman URL (without /worker)", async () => {
-    const { port, close } = await makeForemanServer();
-    const baseUrl = `ws://localhost:${port}`;
+  it("foreman rejects connections not at /worker (regression guard)", async () => {
+    const { port, close } = await startTestForeman();
+    const FOREMAN_URL = `ws://localhost:${port}`;
 
-    // Connecting to the bare URL (the original bug) should fail
-    const ws = new WebSocket(baseUrl);
+    // The original bug: connecting to the bare URL gets socket.destroy()'d by foreman
+    const ws = new WebSocket(FOREMAN_URL);
     await expect(
       new Promise<void>((resolve, reject) => {
         ws.on("open", resolve);
